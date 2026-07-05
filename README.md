@@ -2,7 +2,7 @@
 
 A free, searchable reference for senior backend engineering interview prep — built for a global fintech context, but useful for any backend role.
 
-**🔗 Live site:** _add your GitHub Pages URL here once deployed, e.g. `https://yourusername.github.io/fintech-backend-guide/`_
+**🔗 Live site:** `https://rendyspratama.github.io/fintech-backend-interview-guide/`_
 
 ## What this is
 
