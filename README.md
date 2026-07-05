@@ -2,7 +2,9 @@
 
 A free, searchable reference for senior backend engineering interview prep — built for a global fintech context, but useful for any backend role.
 
-**🔗 Live site:** `https://rendyspratama.github.io/fintech-backend-interview-guide/`_
+**🔗 Live site:** 
+([Doc site](https://rendyspratama.github.io/fintech-backend-interview-guide/)).
+
 
 ## What this is
 
