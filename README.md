@@ -25,8 +25,8 @@ Most interview-prep material either stays too abstract ("here's what CAP theorem
 There's nothing to install. Download `index.html` and open it in any browser:
 
 ```bash
-git clone https://github.com/yourusername/fintech-backend-guide.git
-cd fintech-backend-guide
+git clone https://github.com/rendyspratamarendyspratama/fintech-backend-interview-guide.git
+cd fintech-backend-interview-guide
 open index.html   # or just double-click it
 ```
 
