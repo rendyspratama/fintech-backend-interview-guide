@@ -153,6 +153,31 @@
     border-left:3px solid var(--amber);border-radius:6px;font-size:13px;color:var(--text-dim);
   }
 
+  .coverage-map-wrap{margin-top:48px;text-align:left;max-width:640px;}
+  .coverage-caption{margin-top:14px;font-size:12.5px;color:var(--text-faint);}
+
+  .cov-list{display:flex;flex-direction:column;}
+  .cov-row{
+    display:grid;grid-template-columns:150px 1fr 32px;align-items:center;gap:14px;
+    padding:9px 10px;border-radius:6px;cursor:pointer;
+    transition:background .12s ease;
+  }
+  .cov-row:hover{background:var(--panel-2);}
+  .cov-row:hover .cov-name{color:var(--text);}
+  .cov-row:hover .cov-bar-fill{background:var(--ledger);}
+  .cov-label{display:flex;align-items:baseline;gap:8px;min-width:0;}
+  .cov-code{
+    font-family:var(--mono);font-size:10px;color:var(--text-faint);letter-spacing:0.5px;
+    flex-shrink:0;width:22px;
+  }
+  .cov-name{
+    font-size:12.5px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:color .12s ease;
+  }
+  .cov-bar-track{height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .cov-bar-fill{height:100%;background:var(--text-faint);border-radius:3px;transition:background .12s ease, width .5s ease;}
+  .cov-count{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);text-align:right;}
+
   .topic-view{padding:44px 60px 100px 60px;max-width:900px;}
   .topic-header{border-bottom:1px solid var(--border);padding-bottom:22px;margin-bottom:28px;}
   .breadcrumb{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:1px;}
@@ -3332,6 +3357,30 @@ function updateProgress(){
   document.getElementById('progress-label').textContent = `${done} / ${total} reviewed`;
 }
 
+function renderCoverageMap(){
+  const counts = CATEGORIES.map(c => ({...c, count: TOPICS.filter(t=>t.cat===c.code).length}));
+  const maxCount = Math.max(...counts.map(c=>c.count));
+  const rows = counts.map(c => {
+    const pct = ((c.count / maxCount) * 100).toFixed(1);
+    return `<div class="cov-row" onclick="jumpToCategory('${c.code}')">
+      <div class="cov-label">
+        <span class="cov-code">${c.code}</span>
+        <span class="cov-name">${escapeHTML(c.name)}</span>
+      </div>
+      <div class="cov-bar-track">
+        <div class="cov-bar-fill" style="width:${pct}%"></div>
+      </div>
+      <div class="cov-count">${c.count}</div>
+    </div>`;
+  }).join('');
+  return `<div class="cov-list">${rows}</div>`;
+}
+
+function jumpToCategory(code){
+  const topic = TOPICS.find(t=>t.cat===code);
+  if(topic) selectTopic(topic.id);
+}
+
 function renderLanding(){
   const main = document.getElementById('main');
   main.innerHTML = `
@@ -3342,6 +3391,10 @@ function renderLanding(){
       <div class="stat-row">
         <div class="stat"><div class="num">${TOPICS.length}</div><div class="lbl">Topics</div></div>
         <div class="stat"><div class="num">${CATEGORIES.length}</div><div class="lbl">Sections</div></div>
+      </div>
+      <div class="coverage-map-wrap">
+        ${renderCoverageMap()}
+        <p class="coverage-caption">Every section, sized by how many topics it holds. Click any row to jump straight in.</p>
       </div>
       <div class="tip">Tip: use the search box on the left, or click through sections. Mark topics as reviewed — progress is saved locally in your browser, so it's still here next time you open this file.</div>
     </div>`;
