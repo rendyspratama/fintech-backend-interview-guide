@@ -2653,6 +2653,42 @@ The fix: use a CSRF token (a random value tied to the user's session that must b
 ex:`A login form vulnerable to SQL injection might let an attacker type something like `+"`' OR '1'='1`"+` into the username field, changing the query's logic to match every row instead of just the intended user — completely bypassing the password check. Using a parameterized query instead means that entire string is just treated as literal data to search for, not executable SQL, so the attack simply fails to match anything.`,
 trade:[`These are extremely well-understood, decades-old attack classes with well-established fixes — there's rarely a good excuse for a modern system to be vulnerable to any of them, which is exactly why they're common interview questions: reviewers want to confirm you actually know the standard mitigation, not just that the vulnerability exists.`,`Framework defaults help a lot (most modern ORMs parameterize queries automatically, most frontend frameworks escape output by default), but relying purely on "the framework probably handles it" without understanding why is risky — a raw SQL query or a deliberately unescaped HTML render can still reintroduce these vulnerabilities even within a framework that protects against them by default.`]},
 
+{cat:"SC", title:"CORS (Cross-Origin Resource Sharing)", def:`Browsers enforce a security rule called the Same-Origin Policy: by default, JavaScript running on one website (say, dashboard.example.com) is not allowed to make a request to a different origin (like api.example.com) and read the response — even though nothing stops the request from being sent, the browser blocks the page's JavaScript from seeing the result. This exists to stop a malicious site from silently reading data from other sites a victim happens to be logged into.
+
+CORS is the mechanism that lets a server deliberately opt out of that restriction for specific origins, by returning response headers that tell the browser "responses to this origin are allowed to be read by that other origin's JavaScript." The most important header is `+"`Access-Control-Allow-Origin`"+`, which lists which origin(s) are permitted.
+
+For anything beyond a simple GET request (like a POST with a JSON body, or a request carrying custom headers), the browser first automatically sends a separate "preflight" request — an OPTIONS request asking "would you actually allow this?" — before sending the real request at all. The server needs to explicitly answer that preflight correctly, or the browser never even attempts the real request.
+
+A common, genuinely dangerous misconfiguration: setting `+"`Access-Control-Allow-Origin: *`"+` (allow literally any origin) while also allowing credentials (cookies) to be sent with the request. Browsers actually block this exact combination for good reason — if any website could read cookie-authenticated responses from your API, that defeats the entire purpose of the Same-Origin Policy. If you need to support credentialed requests, you must echo back a specific, validated origin, never a wildcard.`,
+diagram:`<svg viewBox="0 0 480 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="80" y="25" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="600">Browser</text>
+  <line x1="80" y1="38" x2="80" y2="180" stroke="var(--border)" stroke-width="2"/>
+  <text x="400" y="25" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="600">api.example.com</text>
+  <line x1="400" y1="38" x2="400" y2="180" stroke="var(--border)" stroke-width="2"/>
+
+  <line x1="80" y1="60" x2="395" y2="60" stroke="var(--amber)" stroke-width="2" marker-end="url(#co-a)"/>
+  <text x="240" y="52" text-anchor="middle" fill="var(--amber)" font-size="11" font-weight="600">1. OPTIONS preflight — "would you allow this?"</text>
+
+  <line x1="400" y1="90" x2="85" y2="90" stroke="var(--ledger)" stroke-width="2" marker-end="url(#co-g)"/>
+  <text x="240" y="82" text-anchor="middle" fill="var(--ledger)" font-size="11" font-weight="600">2. Access-Control-Allow-Origin: app.example.com</text>
+
+  <line x1="80" y1="120" x2="395" y2="120" stroke="var(--blue)" stroke-width="2" marker-end="url(#co-b)"/>
+  <text x="240" y="112" text-anchor="middle" fill="var(--blue)" font-size="11" font-weight="600">3. actual request now sent</text>
+
+  <line x1="400" y1="150" x2="85" y2="150" stroke="var(--blue)" stroke-width="2" marker-end="url(#co-b)"/>
+  <text x="240" y="142" text-anchor="middle" fill="var(--blue)" font-size="11" font-weight="600">4. response, readable by the page's JS</text>
+
+  <text x="240" y="175" text-anchor="middle" fill="var(--text-faint)" font-size="10.5">If step 2's header doesn't match, step 4's response is blocked from JS entirely</text>
+
+  <defs>
+    <marker id="co-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--amber)"/></marker>
+    <marker id="co-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
+    <marker id="co-b" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--blue)"/></marker>
+  </defs>
+</svg>`,
+ex:`A single-page app hosted at app.example.com calls an API at api.example.com. Without CORS configured, the browser blocks the app's JavaScript from reading the API's response, even if the request itself technically succeeded on the server. The API team adds `+"`Access-Control-Allow-Origin: https://app.example.com`"+` to their responses (a specific origin, not a wildcard, since the app sends an auth cookie) — now the browser permits the app's own JavaScript to read the response, while a random unrelated website trying the same request from a user's browser is still blocked.`,
+trade:[`CORS is a browser-enforced protection — it does nothing to stop a direct server-to-server call, a mobile app, or a tool like curl, since those aren't browsers and don't enforce the Same-Origin Policy at all. It specifically protects browser-based JavaScript from reading responses across origins it shouldn't.`,`It's common for developers to "fix" a CORS error during development by setting `+"`Access-Control-Allow-Origin: *`"+` everywhere and never revisiting it — this is a real security regression in production if the API also relies on cookies for authentication, since it can open the door to cross-site data theft.`]},
+
 {cat:"SC", title:"AuthN vs AuthZ (OAuth2 / OIDC / JWT)", def:`Authentication (AuthN) — proving who you are (logging in).
 
 Authorization (AuthZ) — proving what you're allowed to do, once you're already known to be you.
