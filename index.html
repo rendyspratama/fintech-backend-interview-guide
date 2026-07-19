@@ -28,6 +28,8 @@
     --red: #E8776C;
     --blue: #7EB6E8;
     --violet: #B79EF0;
+    --teal: #4FC9C9;
+    --pink: #E893C4;
     --mark-bg: rgba(78,206,148,0.35);
     --mono: 'IBM Plex Mono', monospace;
     --sans: 'IBM Plex Sans', sans-serif;
@@ -46,6 +48,8 @@
     --red: #C0453A;
     --blue: #2E6FA8;
     --violet: #7452C7;
+    --teal: #1B8A8A;
+    --pink: #A83E82;
     --mark-bg: rgba(31,143,98,0.22);
   }
   *{box-sizing:border-box;}
@@ -348,6 +352,10 @@ O(n log n) — a bit worse than linear, but still efficient at scale. This is th
 
 O(n²) — grows very fast. Twice the data can mean four times the work — the classic signature of a loop nested inside another loop, each scanning the same data.
 
+O(2ⁿ) — exponential. Each single additional item doubles the total work. This shows up in naive recursive solutions that re-solve the same overlapping subproblem repeatedly instead of caching results — it's rarely acceptable at any real production data volume.
+
+O(n!) — factorial, the worst of the common classes. Grows so explosively that it's only ever workable for tiny, fixed-size inputs (like brute-force checking every possible ordering of a small list) — you'd essentially never see this in backend request-handling code.
+
 A few structures that come up constantly in backend code, and why their complexity matters:
 
 Array / list — looking up an item by its position is instant (O(1)), but checking whether the list *contains* a particular value means checking every item one by one in the worst case (O(n)) — this gets slow once "every item" means millions of items.
@@ -358,27 +366,33 @@ Tree (and its close relative, the B-Tree used inside database indexes) — keeps
 
 Heap / priority queue — efficiently always gives you the smallest (or largest) item first, which is why it's the structure behind things like "process the highest-priority job next" in a job queue.
 
-The practical backend takeaway: an O(n) or worse operation sitting quietly inside a loop, or inside code that runs per-request, is one of the most common root causes of "why did this suddenly get slow once we had real production data" — and it's usually fixable by swapping in the right structure (very often, a hash map instead of scanning a list).`,
-diagram:`<svg viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg">
-  <line x1="60" y1="360" x2="600" y2="360" stroke="var(--border)" stroke-width="2"/>
-  <line x1="60" y1="360" x2="60" y2="20" stroke="var(--border)" stroke-width="2"/>
-  <text x="330" y="400" text-anchor="middle" fill="var(--text-dim)" font-size="14">n (input size) →</text>
-  <text x="24" y="190" text-anchor="middle" fill="var(--text-dim)" font-size="14" transform="rotate(-90 24 190)">time / operations →</text>
+The practical backend takeaway: an O(n) or worse operation sitting quietly inside a loop, or inside code that runs per-request, is one of the most common root causes of "why did this suddenly get slow once we had real production data" — and it's usually fixable by swapping in the right structure (very often, a hash map instead of scanning a list). O(2ⁿ) and O(n!) are included here for a complete picture, but in practice you'll almost never see them in backend code that's expected to handle real traffic — if you ever do, it's a five-alarm fire, not a normal trade-off to weigh.`,
+diagram:`<svg viewBox="0 0 700 430" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <line x1="60" y1="390" x2="620" y2="390" stroke="var(--border)" stroke-width="2"/>
+  <line x1="60" y1="390" x2="60" y2="20" stroke="var(--border)" stroke-width="2"/>
+  <text x="340" y="415" text-anchor="middle" fill="var(--text-dim)" font-size="13">n (input size) →</text>
+  <text x="22" y="205" text-anchor="middle" fill="var(--text-dim)" font-size="13" transform="rotate(-90 22 205)">time / operations →</text>
 
-  <polyline points="60,338 600,338" fill="none" stroke="var(--ledger)" stroke-width="3"/>
-  <text x="605" y="342" fill="var(--ledger)" font-size="15" font-weight="600">O(1)</text>
+  <polyline points="70,355 168,355 266,355 364,355 462,355 560,355" fill="none" stroke="var(--ledger)" stroke-width="2.5"/>
+  <text x="568" y="359" fill="var(--ledger)" font-size="13" font-weight="600">O(1)</text>
 
-  <polyline points="65,338 114,304 195,290 330,280 465,274 600,270" fill="none" stroke="var(--blue)" stroke-width="3"/>
-  <text x="605" y="270" fill="var(--blue)" font-size="15" font-weight="600">O(log n)</text>
+  <polyline points="70,390 168,355 266,342 364,334 462,329 560,325" fill="none" stroke="var(--blue)" stroke-width="2.5"/>
+  <text x="568" y="329" fill="var(--blue)" font-size="13" font-weight="600">O(log n)</text>
 
-  <polyline points="60,340 600,70" fill="none" stroke="var(--amber)" stroke-width="3"/>
-  <text x="605" y="74" fill="var(--amber)" font-size="15" font-weight="600">O(n)</text>
+  <polyline points="70,355 168,334 266,320 364,308 462,299 560,291" fill="none" stroke="var(--amber)" stroke-width="2.5"/>
+  <text x="568" y="295" fill="var(--amber)" font-size="13" font-weight="600">O(n)</text>
 
-  <polyline points="60,340 200,270 340,175 460,95 560,40" fill="none" stroke="var(--violet)" stroke-width="3"/>
-  <text x="565" y="30" fill="var(--violet)" font-size="15" font-weight="600">O(n log n)</text>
+  <polyline points="70,390 168,334 266,301 364,279 462,262 560,248" fill="none" stroke="var(--violet)" stroke-width="2.5"/>
+  <text x="568" y="252" fill="var(--violet)" font-size="13" font-weight="600">O(n log n)</text>
 
-  <polyline points="60,340 160,300 240,220 300,140 345,75 380,28" fill="none" stroke="var(--red)" stroke-width="3"/>
-  <text x="330" y="20" fill="var(--red)" font-size="15" font-weight="600">O(n²)</text>
+  <polyline points="70,355 168,308 266,273 364,247 462,225 560,207" fill="none" stroke="var(--red)" stroke-width="2.5"/>
+  <text x="568" y="211" fill="var(--red)" font-size="13" font-weight="600">O(n²)</text>
+
+  <polyline points="70,334 168,308 266,279 364,247 462,213 560,178" fill="none" stroke="var(--teal)" stroke-width="2.5"/>
+  <text x="568" y="182" fill="var(--teal)" font-size="13" font-weight="600">O(2ⁿ)</text>
+
+  <polyline points="70,355 168,334 266,291 364,227 462,147 560,57" fill="none" stroke="var(--pink)" stroke-width="2.5"/>
+  <text x="568" y="61" fill="var(--pink)" font-size="13" font-weight="600">O(n!)</text>
 </svg>`,
 ex:`A service checking "has this idempotency key already been used?" by looping through a list of the last 10,000 keys checking each one (O(n) per check) works fine in a demo with 50 keys, but becomes a real, measurable bottleneck at production volume. Storing those keys in a hash map (or a proper key-value store like Redis) instead makes that same check close to instant, regardless of how many keys exist — this is exactly the kind of practical, "which data structure" decision that shows up constantly in real backend code, even though it looks like a simple choice.`,
 trade:[`Understanding Big-O isn't about memorizing academic notation — it's a practical tool for spotting the difference between code that will scale and code that will quietly become a production incident once the data volume grows past what anyone tested with.`,`This guide deliberately doesn't go deep into algorithm design or whiteboard-style coding-interview problems — the goal here is recognizing when a data-structure choice matters in real backend code, not mastering algorithmic puzzle-solving.`]},
