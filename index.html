@@ -101,7 +101,7 @@
   #search-hint{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-top:6px;}
   #no-results{display:none;padding:14px;color:var(--text-faint);font-size:12.5px;font-style:italic;}
 
-  #nav{flex:1;overflow-y:auto;padding:6px 0 24px 0;}
+  #nav{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 0 24px 0;}
   #nav::-webkit-scrollbar{width:8px;}
   #nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 
@@ -137,7 +137,7 @@
   mark{background:var(--mark-bg);color:inherit;border-radius:2px;}
 
   /* ---------- Main ---------- */
-  #main{flex:1;overflow-y:auto;position:relative;}
+  #main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;}
   #main::-webkit-scrollbar{width:10px;}
   #main::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px;}
 
@@ -5570,7 +5570,10 @@ function selectTopic(id){
 
   renderNav(document.getElementById('search').value);
   main.scrollTop = 0;
-  if(window.innerWidth <= 860) document.getElementById('sidebar').classList.remove('open');
+  if(window.innerWidth <= 860){
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
 }
 
 function goHome(){
