@@ -77,6 +77,9 @@
   }
   .brand-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
   #brand .code{font-family:var(--mono);color:var(--ledger);font-size:12px;letter-spacing:2px;text-transform:uppercase;}
+  #brand-home{cursor:pointer;}
+  #brand-title{cursor:pointer;transition:color .12s ease;}
+  #brand-title:hover{color:var(--ledger);}
   #theme-toggle{
     font-family:var(--sans);font-size:11.5px;background:var(--panel-2);border:1px solid var(--border);
     color:var(--text-dim);padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;
@@ -140,7 +143,7 @@
 
   #mobile-toggle{display:none;}
 
-  .landing{padding:60px 60px;max-width:900px;}
+  .landing{padding:clamp(32px,5vw,60px) clamp(24px,6vw,72px);max-width:min(1500px,95vw);margin:0 auto;}
   .landing .code{font-family:var(--mono);color:var(--ledger);font-size:12px;letter-spacing:3px;text-transform:uppercase;}
   .landing h1{font-size:34px;margin:12px 0 14px 0;font-weight:700;line-height:1.2;}
   .landing p.lead{color:var(--text-dim);font-size:15px;line-height:1.7;max-width:640px;}
@@ -153,7 +156,7 @@
     border-left:3px solid var(--amber);border-radius:6px;font-size:13px;color:var(--text-dim);
   }
 
-  .coverage-map-wrap{margin-top:48px;text-align:left;max-width:640px;}
+  .coverage-map-wrap{margin-top:48px;text-align:left;max-width:min(820px,100%);}
   .coverage-caption{margin-top:14px;font-size:12.5px;color:var(--text-faint);}
 
   .cov-list{display:flex;flex-direction:column;}
@@ -178,10 +181,12 @@
   .cov-bar-fill{height:100%;background:var(--text-faint);border-radius:3px;transition:background .12s ease, width .5s ease;}
   .cov-count{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);text-align:right;}
 
-  .topic-view{padding:44px 60px 100px 60px;max-width:900px;}
+  .topic-view{padding:clamp(28px,4vw,44px) clamp(24px,6vw,72px) 100px clamp(24px,6vw,72px);max-width:min(1500px,95vw);margin:0 auto;}
   .topic-header{border-bottom:1px solid var(--border);padding-bottom:22px;margin-bottom:28px;}
   .breadcrumb{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:1px;}
   .breadcrumb .sep{margin:0 6px;}
+  .breadcrumb .crumb-home{cursor:pointer;transition:color .12s ease;}
+  .breadcrumb .crumb-home:hover{color:var(--ledger);}
   .topic-title{font-size:28px;font-weight:700;margin:10px 0 0 0;}
   .mark-done-btn{
     margin-top:16px;display:inline-flex;align-items:center;gap:8px;
@@ -214,7 +219,7 @@
   .card.code{border-left:3px solid var(--text-faint);}
   .card.diagram{border-left:3px solid var(--violet);text-align:center;}
   .card.diagram .card-label{color:var(--violet);}
-  .card.diagram svg{width:100%;height:auto;display:block;max-width:640px;margin:0 auto;}
+  .card.diagram svg{width:100%;height:auto;display:block;max-width:min(900px,100%);margin:0 auto;}
   .card.diagram text{font-family:var(--sans);}
   .card.diagram .mono-label{font-family:var(--mono);}
   .card.code .card-label{color:var(--text-dim);}
@@ -245,9 +250,31 @@
       background:var(--panel);border:1px solid var(--border);color:var(--text);
       width:38px;height:38px;border-radius:8px;align-items:center;justify-content:center;cursor:pointer;
     }
-    .landing,.topic-view{padding:80px 22px 60px 22px;}
+    .landing,.topic-view{padding:80px clamp(16px,5vw,22px) 60px clamp(16px,5vw,22px);max-width:100%;}
     #overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15;}
     #overlay.show{display:block;}
+  }
+
+  /* Small phones: tighten card and heading sizing further */
+  @media (max-width: 480px){
+    .landing h1{font-size:26px;}
+    .topic-title{font-size:22px;}
+    .card{padding:18px 18px;}
+    .card p,.card li{font-size:15px;max-width:none;}
+    .landing .stat-row{gap:20px;}
+    .stat{min-width:96px;}
+  }
+
+  /* Large desktop / wide monitors: let the content column grow further so it doesn't
+     leave a large empty gap next to a fixed-width sidebar. Scales in tiers as the
+     screen gets wider, rather than capping out at one fixed desktop size. */
+  @media (min-width: 1600px){
+    .landing,.topic-view{max-width:1700px;}
+    .card.diagram svg{max-width:1080px;}
+  }
+  @media (min-width: 2200px){
+    .landing,.topic-view{max-width:2000px;}
+    .card.diagram svg{max-width:1200px;}
   }
 </style>
 </head>
@@ -260,10 +287,10 @@
   <div id="sidebar">
     <div id="brand">
       <div class="brand-top">
-        <div class="code">Prep Reference</div>
+        <div class="code" id="brand-home" title="Back to overview">Prep Reference</div>
         <button id="theme-toggle" title="Switch between dark and light reading mode">🌙 Dark</button>
       </div>
-      <h1>Fintech Backend Field Guide</h1>
+      <h1 id="brand-title" title="Back to overview">Fintech Backend Field Guide</h1>
       <p>Senior backend engineer · global company</p>
       <div id="progress-wrap"><div id="progress-bar"></div></div>
       <div id="progress-label">0 / 0 reviewed</div>
@@ -2687,7 +2714,7 @@ Monolith — one single deployable unit, usually with a shared codebase and ofte
 SOA (Service-Oriented Architecture) — services are split up but still share some infrastructure and contracts, often communicating through a central enterprise service bus.
 
 Microservices — services are fully independent: each one is deployed on its own, and each one owns its own database, communicating with others only over the network.`,
-diagram:`<svg viewBox="0 0 520 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+diagram:`<svg viewBox="0 0 545 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <text x="80" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Monolith</text>
   <rect x="20" y="30" width="120" height="90" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
   <line x1="20" y1="60" x2="140" y2="60" stroke="var(--border)"/>
@@ -5501,7 +5528,7 @@ function selectTopic(id){
   main.innerHTML = `
     <div class="topic-view">
       <div class="topic-header">
-        <div class="breadcrumb">${cat.code}<span class="sep">/</span>${cat.name}</div>
+        <div class="breadcrumb"><span class="crumb-home" id="crumb-home">Home</span><span class="sep">/</span>${cat.code}<span class="sep">/</span>${cat.name}</div>
         <h2 class="topic-title">${t.title}</h2>
         <button class="mark-done-btn ${doneMap[t.id]?'is-done':''}" id="mark-btn">${doneMap[t.id] ? '✓ Reviewed' : 'Mark as reviewed'}</button>
       </div>
@@ -5539,10 +5566,22 @@ function selectTopic(id){
   };
   if(prev) document.getElementById('prev-btn').onclick = ()=>selectTopic(prev.id);
   if(next) document.getElementById('next-btn').onclick = ()=>selectTopic(next.id);
+  document.getElementById('crumb-home').onclick = goHome;
 
   renderNav(document.getElementById('search').value);
   main.scrollTop = 0;
   if(window.innerWidth <= 860) document.getElementById('sidebar').classList.remove('open');
+}
+
+function goHome(){
+  currentId = null;
+  renderLanding();
+  renderNav(document.getElementById('search').value);
+  document.getElementById('main').scrollTop = 0;
+  if(window.innerWidth <= 860){
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
 }
 
 function toggleSidebar(){
@@ -5602,6 +5641,8 @@ document.getElementById('theme-toggle').onclick = ()=>{
 /* Init */
 console.log('%cFintech Backend Field Guide', 'font-size:14px;font-weight:bold;color:#4ECE94;');
 console.log('%cCreated by rendyspratama', 'font-size:11px;color:#9AA7B4;');
+document.getElementById('brand-home').onclick = goHome;
+document.getElementById('brand-title').onclick = goHome;
 renderNav('');
 renderLanding();
 </script>
