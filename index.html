@@ -102,6 +102,24 @@
   #recall-btn:hover{border-color:var(--ledger);color:var(--text);}
 
   #search-wrap{padding:12px 14px;border-bottom:1px solid var(--border);}
+
+  #filter-chips{padding:0 14px 12px 14px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .filter-chip{
+    background:var(--panel-2);border:1px solid var(--border);color:var(--text-dim);
+    font-family:var(--sans);font-size:11px;padding:5px 9px;border-radius:6px;cursor:pointer;
+    display:flex;align-items:center;gap:5px;
+  }
+  .filter-chip:hover{border-color:var(--text-faint);color:var(--text);}
+  .filter-chip.active{background:var(--ledger-dim);border-color:var(--ledger);color:var(--text);}
+  .filter-chip .fc-count{font-family:var(--mono);color:var(--text-faint);font-size:10px;}
+  .filter-chip.active .fc-count{color:var(--ledger);}
+  .filter-chip:disabled{opacity:.4;cursor:not-allowed;}
+  .filter-chip:disabled:hover{border-color:var(--border);color:var(--text-dim);}
+  .filter-clear{
+    background:none;border:none;color:var(--text-faint);font-family:var(--sans);font-size:11px;
+    cursor:pointer;text-decoration:underline;padding:5px 2px;
+  }
+  .filter-clear:hover{color:var(--text);}
   #search{
     width:100%;padding:9px 12px;
     background:var(--bg);border:1px solid var(--border);border-radius:6px;
@@ -434,6 +452,7 @@
       <input id="search" type="text" placeholder="Search topics… (e.g. sharding, CAP, saga)" autocomplete="off">
       <div id="search-hint">Press <b>/</b> to focus · <b>⌘K</b> to jump · Esc to clear</div>
     </div>
+    <div id="filter-chips"></div>
     <div id="nav"></div>
     <div id="no-results">No topics match your search.</div>
   </div>
@@ -5556,6 +5575,18 @@ function setNotes(map){
   try{ localStorage.setItem(NOTES_KEY, JSON.stringify(map)); }catch(e){}
 }
 
+/* Leitner-style box tracking for Recall Mode: box 0 = never nailed / just missed,
+   box 5 = nailed 5 times in a row. Persists across sessions so weak topics keep
+   surfacing and well-known ones taper off, instead of a plain reshuffle every time. */
+const RECALL_STATS_KEY = "fintech-guide-recall-stats";
+const MAX_BOX = 5;
+function getRecallStats(){
+  try{ return JSON.parse(localStorage.getItem(RECALL_STATS_KEY) || "{}"); }catch(e){ return {}; }
+}
+function setRecallStats(map){
+  try{ localStorage.setItem(RECALL_STATS_KEY, JSON.stringify(map)); }catch(e){}
+}
+
 TOPICS.forEach((t,i)=>{ t.id = t.cat + "-" + i; });
 
 let currentId = null;
@@ -5563,6 +5594,18 @@ let doneMap = getDone();
 let starMap = getStars();
 let notesMap = getNotes();
 let notesSaveTimer = null;
+let recallStatsMap = getRecallStats();
+let activeFilters = new Set(); // sidebar browse filters: 'highyield' | 'starred' | 'unreviewed' | 'weak'
+
+function getBox(id){ return recallStatsMap[id] || 0; }
+function bumpBoxUp(id){
+  recallStatsMap[id] = Math.min(MAX_BOX, getBox(id) + 1);
+  setRecallStats(recallStatsMap);
+}
+function resetBox(id){
+  recallStatsMap[id] = 0;
+  setRecallStats(recallStatsMap);
+}
 
 function toggleStar(id){
   starMap[id] = !starMap[id];
@@ -5589,6 +5632,43 @@ function shuffleArray(arr){
     [a[i],a[j]] = [a[j],a[i]];
   }
   return a;
+}
+
+/* Weighted shuffle for Recall Mode: lower-box (weaker) topics get a higher chance
+   of landing earlier in the queue. Weighted sampling without replacement, so the
+   whole pool still appears once — it's the ORDER that's biased, not the coverage. */
+function recallWeight(t){
+  return (MAX_BOX + 1) - getBox(t.id);
+}
+function weightedShuffle(pool){
+  const items = pool.slice();
+  const result = [];
+  while(items.length){
+    const weights = items.map(recallWeight);
+    const total = weights.reduce((s,w)=>s+w, 0);
+    let r = Math.random() * total;
+    let idx = 0;
+    for(; idx < items.length; idx++){
+      r -= weights[idx];
+      if(r <= 0) break;
+    }
+    if(idx >= items.length) idx = items.length - 1;
+    result.push(items[idx]);
+    items.splice(idx, 1);
+  }
+  return result;
+}
+/* Topics you've nailed several times in a row get a chance to be skipped for this
+   particular session (never fully retired — spaced repetition still wants an
+   occasional check-in). Box 0-1 topics are never skipped. */
+function applyMasterySkip(pool){
+  const kept = pool.filter(t=>{
+    const box = getBox(t.id);
+    if(box <= 1) return true;
+    const skipChance = Math.min(0.7, (box - 1) * 0.2);
+    return Math.random() >= skipChance;
+  });
+  return kept.length ? kept : pool;
 }
 
 /* build a reverse lookup so "See also" links are symmetric without double-entry:
@@ -5630,7 +5710,42 @@ function formatInline(text){
 
 function catInfo(code){ return CATEGORIES.find(c=>c.code===code); }
 
+function topicMatchesFilters(t){
+  if(activeFilters.has('highyield') && t.priority !== 'high') return false;
+  if(activeFilters.has('starred') && !starMap[t.id]) return false;
+  if(activeFilters.has('unreviewed') && doneMap[t.id]) return false;
+  if(activeFilters.has('weak') && getBox(t.id) > 1) return false;
+  return true;
+}
+
+function toggleFilter(key){
+  if(activeFilters.has(key)) activeFilters.delete(key);
+  else activeFilters.add(key);
+  renderNav(document.getElementById('search').value);
+}
+
+function renderFilterChips(){
+  const wrap = document.getElementById('filter-chips');
+  const defs = [
+    {key:'highyield', label:'High-Yield', count: TOPICS.filter(t=>t.priority==='high').length},
+    {key:'starred', label:'Starred', count: TOPICS.filter(t=>starMap[t.id]).length},
+    {key:'unreviewed', label:'Unreviewed', count: TOPICS.filter(t=>!doneMap[t.id]).length},
+    {key:'weak', label:'Weak Spots', count: TOPICS.filter(t=>getBox(t.id)<=1).length},
+  ];
+  wrap.innerHTML = defs.map(d=>`
+    <button class="filter-chip${activeFilters.has(d.key)?' active':''}" data-key="${d.key}" ${d.count===0?'disabled':''}>
+      <span>${d.label}</span><span class="fc-count">${d.count}</span>
+    </button>`).join('') + (activeFilters.size ? `<button class="filter-clear" id="filter-clear-btn">Clear</button>` : '');
+
+  wrap.querySelectorAll('.filter-chip').forEach(btn=>{
+    btn.onclick = ()=> toggleFilter(btn.dataset.key);
+  });
+  const clearBtn = document.getElementById('filter-clear-btn');
+  if(clearBtn) clearBtn.onclick = ()=>{ activeFilters.clear(); renderNav(document.getElementById('search').value); };
+}
+
 function renderNav(filterText){
+  renderFilterChips();
   const nav = document.getElementById('nav');
   const noResults = document.getElementById('no-results');
   nav.innerHTML = "";
@@ -5640,6 +5755,7 @@ function renderNav(filterText){
   CATEGORIES.forEach(cat=>{
     const topics = TOPICS.filter(t=>t.cat===cat.code);
     const matches = topics.filter(t=>{
+      if(!topicMatchesFilters(t)) return false;
       if(!q) return true;
       return (t.title+" "+t.def+" "+t.ex).toLowerCase().includes(q);
     });
@@ -5668,6 +5784,7 @@ function renderNav(filterText){
   });
 
   noResults.style.display = totalShown===0 ? 'block' : 'none';
+  noResults.textContent = activeFilters.size ? 'No topics match your search and filters.' : 'No topics match your search.';
   updateProgress();
 }
 
@@ -5713,6 +5830,8 @@ function renderLanding(){
   const main = document.getElementById('main');
   const unreviewedCount = TOPICS.filter(t=>!doneMap[t.id]).length;
   const starredCount = TOPICS.filter(t=>starMap[t.id]).length;
+  const highYieldCount = TOPICS.filter(t=>t.priority==='high').length;
+  const weakCount = TOPICS.filter(t=>getBox(t.id)<=1).length;
   main.innerHTML = `
     <div class="landing">
       <div class="code">Start here</div>
@@ -5724,11 +5843,13 @@ function renderLanding(){
       </div>
       <div class="recall-launch">
         <div class="card-label">Recall Mode</div>
-        <p>Practice pulling each definition from memory instead of just reading it — titles come up in random order, one at a time, with the answer hidden until you reveal it.</p>
+        <p>Practice pulling each definition from memory instead of just reading it. Sessions remember how you've done on each topic — ones you keep missing come back more often, ones you've nailed several times in a row taper off.</p>
         <div class="recall-opts">
           <button class="recall-opt-btn" id="recall-all-btn"><span>All topics</span><span class="n">${TOPICS.length}</span></button>
           <button class="recall-opt-btn" id="recall-unreviewed-btn" ${unreviewedCount===0?'disabled':''}><span>Unreviewed only</span><span class="n">${unreviewedCount}</span></button>
           <button class="recall-opt-btn" id="recall-starred-btn" ${starredCount===0?'disabled':''}><span>Starred only</span><span class="n">${starredCount}</span></button>
+          <button class="recall-opt-btn" id="recall-highyield-btn" ${highYieldCount===0?'disabled':''}><span>High-Yield only</span><span class="n">${highYieldCount}</span></button>
+          <button class="recall-opt-btn" id="recall-weak-btn" ${weakCount===0?'disabled':''}><span>Weak spots</span><span class="n">${weakCount}</span></button>
         </div>
       </div>
       <div class="coverage-map-wrap">
@@ -5741,6 +5862,8 @@ function renderLanding(){
   document.getElementById('recall-all-btn').onclick = ()=>startRecall('all');
   document.getElementById('recall-unreviewed-btn').onclick = ()=>startRecall('unreviewed');
   document.getElementById('recall-starred-btn').onclick = ()=>startRecall('starred');
+  document.getElementById('recall-highyield-btn').onclick = ()=>startRecall('highyield');
+  document.getElementById('recall-weak-btn').onclick = ()=>startRecall('weak');
 }
 
 /* =========================================================
@@ -5756,6 +5879,8 @@ function startRecall(filter){
   let pool = TOPICS;
   if(filter==='unreviewed'){ pool = TOPICS.filter(t=>!doneMap[t.id]); recallFilterLabel = "Unreviewed"; }
   else if(filter==='starred'){ pool = TOPICS.filter(t=>starMap[t.id]); recallFilterLabel = "Starred"; }
+  else if(filter==='highyield'){ pool = TOPICS.filter(t=>t.priority==='high'); recallFilterLabel = "High-Yield"; }
+  else if(filter==='weak'){ pool = TOPICS.filter(t=>getBox(t.id)<=1); recallFilterLabel = "Weak Spots"; }
   else { recallFilterLabel = "All topics"; }
 
   if(pool.length===0){
@@ -5763,7 +5888,8 @@ function startRecall(filter){
     recallFilterLabel = "All topics";
   }
 
-  recallQueue = shuffleArray(pool).map(t=>t.id);
+  const sessionPool = filter==='weak' ? pool : applyMasterySkip(pool);
+  recallQueue = weightedShuffle(sessionPool).map(t=>t.id);
   recallIndex = 0;
   recallRevealed = false;
   recallStats = {gotIt:0, seen:0};
@@ -5773,6 +5899,14 @@ function startRecall(filter){
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('overlay').classList.remove('show');
   }
+}
+
+function recallFilterKey(label){
+  if(label==="Unreviewed") return 'unreviewed';
+  if(label==="Starred") return 'starred';
+  if(label==="High-Yield") return 'highyield';
+  if(label==="Weak Spots") return 'weak';
+  return 'all';
 }
 
 function renderRecall(){
@@ -5787,7 +5921,7 @@ function renderRecall(){
         </div>
         <div class="recall-complete">
           <div class="big">${recallStats.gotIt} / ${recallStats.seen}</div>
-          <p>marked "Got it" this session.</p>
+          <p>marked "Got it" this session. Struggling topics will come up more often next time — well-known ones will taper off.</p>
           <div class="recall-complete-actions">
             <button class="recall-btn got-it" id="recall-again-btn">Run again</button>
             <button class="recall-btn" id="recall-home-btn">Back to guide</button>
@@ -5796,20 +5930,18 @@ function renderRecall(){
       </div>`;
     document.getElementById('recall-exit-btn').onclick = exitRecall;
     document.getElementById('recall-home-btn').onclick = exitRecall;
-    document.getElementById('recall-again-btn').onclick = ()=>{
-      const filter = recallFilterLabel==="Unreviewed" ? 'unreviewed' : recallFilterLabel==="Starred" ? 'starred' : 'all';
-      startRecall(filter);
-    };
+    document.getElementById('recall-again-btn').onclick = ()=> startRecall(recallFilterKey(recallFilterLabel));
     return;
   }
 
   const t = TOPICS.find(x=>x.id===recallQueue[recallIndex]);
   const cat = catInfo(t.cat);
+  const box = getBox(t.id);
 
   main.innerHTML = `
     <div class="recall-view">
       <div class="recall-top">
-        <div class="recall-meta">Recall Mode · ${recallFilterLabel} · ${recallIndex+1} / ${recallQueue.length}</div>
+        <div class="recall-meta">Recall Mode · ${recallFilterLabel} · ${recallIndex+1} / ${recallQueue.length} · Box ${box}/${MAX_BOX}</div>
         <button class="recall-exit" id="recall-exit-btn">Exit</button>
       </div>
       <div class="recall-title-card">
@@ -5840,6 +5972,7 @@ function renderRecall(){
     document.getElementById('recall-got-it').onclick = ()=>{
       doneMap[t.id] = true;
       setDone(doneMap);
+      bumpBoxUp(t.id);
       recallStats.gotIt++;
       recallStats.seen++;
       recallIndex++;
@@ -5847,6 +5980,7 @@ function renderRecall(){
       renderRecall();
     };
     document.getElementById('recall-again-single').onclick = ()=>{
+      resetBox(t.id);
       recallStats.seen++;
       recallQueue.push(t.id);
       recallIndex++;
@@ -5939,11 +6073,17 @@ function selectTopic(id){
   document.getElementById('crumb-home').onclick = goHome;
 
   renderNav(document.getElementById('search').value);
+  scrollActiveNavItemIntoView();
   main.scrollTop = 0;
   if(window.innerWidth <= 860){
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('overlay').classList.remove('show');
   }
+}
+
+function scrollActiveNavItemIntoView(){
+  const activeItem = document.querySelector('#nav .topic-item.active');
+  if(activeItem) activeItem.scrollIntoView({block:'nearest'});
 }
 
 function goHome(){
@@ -6106,8 +6246,9 @@ console.log('%cCreated by rendyspratama', 'font-size:11px;color:#9AA7B4;');
 document.getElementById('brand-home').onclick = goHome;
 document.getElementById('brand-title').onclick = goHome;
 document.getElementById('recall-btn').onclick = ()=>{
+  const anyWeak = TOPICS.some(t=>getBox(t.id)<=1);
   const anyUnreviewed = TOPICS.some(t=>!doneMap[t.id]);
-  startRecall(anyUnreviewed ? 'unreviewed' : 'all');
+  startRecall(anyWeak ? 'weak' : anyUnreviewed ? 'unreviewed' : 'all');
 };
 renderNav('');
 renderLanding();
