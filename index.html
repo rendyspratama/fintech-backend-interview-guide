@@ -2816,13 +2816,13 @@ diagram:`<svg viewBox="0 0 480 180" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="70" y="87" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">Client</text>
 
   <line x1="120" y1="70" x2="170" y2="45" stroke="var(--ledger)" stroke-width="2" marker-end="url(#cq-g)"/>
-  <text x="145" y="35" fill="var(--ledger)" font-size="10" font-weight="600">Command</text>
+  <text x="130" y="35" fill="var(--ledger)" font-size="10" font-weight="600">Command</text>
   <rect x="175" y="20" width="130" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
   <text x="240" y="42" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">Write Model</text>
   <text x="240" y="58" text-anchor="middle" fill="var(--text-dim)" font-size="9.5">strongly consistent</text>
 
   <line x1="120" y1="95" x2="170" y2="120" stroke="var(--blue)" stroke-width="2" marker-end="url(#cq-b)"/>
-  <text x="145" y="135" fill="var(--blue)" font-size="10" font-weight="600">Query</text>
+  <text x="135" y="135" fill="var(--blue)" font-size="10" font-weight="600">Query</text>
   <rect x="175" y="105" width="130" height="50" rx="6" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
   <text x="240" y="127" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">Read Model</text>
   <text x="240" y="143" text-anchor="middle" fill="var(--text-dim)" font-size="9.5">fast, denormalized</text>
@@ -3215,6 +3215,69 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`Based on load testing showing a payment service saturates at 500 requests/second per instance, autoscaling is configured to add instances once average utilization crosses 60% of that threshold — leaving enough headroom to absorb a sudden spike (like a flash sale) before existing instances actually max out.`,
 trade:[`Autoscaling reacting to a lagging signal (like CPU) can be too slow for a sudden, sharp spike — for a known event (a product launch, a holiday sale), it's often better to proactively pre-scale ahead of time rather than relying on autoscaling alone.`,`Overly aggressive scale-down settings can cause "flapping" — scaling down, then immediately needing to scale right back up — which adds cost and latency from constant instance churn. Use cooldown periods and sensible thresholds to avoid this.`],related:["Vertical vs Horizontal Scaling", "Container Orchestration (Kubernetes)"]},
+
+{cat:"RS", title:"Timeouts & Deadline Propagation", def:`A timeout is a rule that says "stop waiting after this long" — the alternative, waiting forever for a response that might never come, is one of the most common root causes of resource exhaustion (threads, connections, memory) piling up until the whole service falls over, which is exactly the scenario Cascading Failures & Metastability and Circuit Breaker (both covered elsewhere) exist to prevent.
+
+Three distinct timeouts usually need to be set separately, not just one:
+
+Connect timeout — how long to wait for the underlying TCP/TLS connection to even get established, before giving up.
+
+Read (response) timeout — once connected, how long to wait for the other side to actually send a response back.
+
+Overall (request) timeout — a ceiling on the whole operation from start to finish, including retries. This is the one that actually protects the caller, since a connect timeout and a read timeout can each individually succeed while still, added together with retries, taking far longer than acceptable.
+
+In a call chain — Client calls Gateway, which calls Service A, which calls Service B — a single, shared deadline (a fixed point in time, not a fixed duration) needs to be passed down through every hop, shrinking as it goes. Without this, Service B might still be doing real work on a request the original Client already gave up on and retried minutes ago — wasted compute, and if that abandoned work eventually completes and has a side effect like moving money, a genuinely dangerous one.`,
+diagram:`<svg viewBox="0 0 640 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="70" width="110" height="60" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="75" y="95" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Client</text>
+  <text x="75" y="112" text-anchor="middle" fill="var(--ledger)" font-size="10" font-weight="600">budget: 5000ms</text>
+
+  <line x1="130" y1="100" x2="185" y2="100" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#tm-a)"/>
+  <text x="153" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">-200ms overhead</text>
+
+  <rect x="190" y="70" width="120" height="60" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="250" y="90" text-anchor="middle" fill="var(--text)" font-size="10.5" font-weight="700">API Gateway</text>
+  <text x="250" y="107" text-anchor="middle" fill="var(--blue)" font-size="10" font-weight="600">passes: 4800ms</text>
+  <text x="250" y="122" text-anchor="middle" fill="var(--text-faint)" font-size="8">remaining</text>
+
+  <line x1="310" y1="100" x2="365" y2="100" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#tm-a)"/>
+  <text x="333" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">-300ms overhead</text>
+
+  <rect x="370" y="70" width="130" height="60" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="435" y="90" text-anchor="middle" fill="var(--text)" font-size="10.5" font-weight="700">Payment Service</text>
+  <text x="435" y="107" text-anchor="middle" fill="var(--blue)" font-size="10" font-weight="600">passes: 4500ms</text>
+  <text x="435" y="122" text-anchor="middle" fill="var(--text-faint)" font-size="8">remaining</text>
+
+  <line x1="500" y1="100" x2="545" y2="100" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#tm-a)"/>
+
+  <rect x="550" y="70" width="75" height="60" rx="6" fill="var(--amber)" fill-opacity="0.14" stroke="var(--amber)" stroke-width="2"/>
+  <text x="587" y="95" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Fraud</text>
+  <text x="587" y="108" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Service</text>
+  <text x="587" y="122" text-anchor="middle" fill="var(--amber)" font-size="8" font-weight="600">has 4500ms</text>
+
+  <text x="320" y="45" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Each hop forwards the remaining budget, not a fresh timeout</text>
+  <text x="320" y="165" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Without propagation, Fraud Service might still be working long after the Client already gave up and retried</text>
+
+  <defs>
+    <marker id="tm-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+  </defs>
+</svg>`,
+ex:`A payment request flows Client → API Gateway → Payment Service → Fraud Scoring Service → Card Network. The client sets an overall 5-second deadline. The Gateway consumes 200ms of its own overhead (auth, routing) before calling the Payment Service, forwarding a 4,800ms remaining budget instead of handing that service a fresh 5 seconds of its own. If the Fraud Scoring Service call is slow, the Payment Service can see there are only, say, 300ms left in the shared budget and immediately fail fast with a clear "timed out waiting on fraud check" error — instead of hanging for however long its own default HTTP client timeout happens to be configured for, which might be 30 seconds, long after the original client already gave up.`,
+trade:[`Setting timeouts too aggressively causes a different, equally real problem: false failures on requests that were actually going to succeed, just slightly slower than usual — for example during a brief GC pause or a normal traffic spike. Timeout values should generally come from measured latency percentiles (like p99) of the actual dependency, not a round number picked by feel.`,`Deadline propagation only works if every service in the chain actually participates — one service that ignores the incoming deadline and always uses its own fixed internal timeout breaks the guarantee for everything downstream of it, and this kind of gap is easy to introduce accidentally when a new service is added to an existing chain.`,`A timeout that fires doesn't mean the downstream operation didn't happen — the client genuinely doesn't know whether the request succeeded, failed, or is still in flight when it gives up waiting. This is exactly why timeouts and retries need to be paired with idempotency (covered elsewhere), not treated as a standalone reliability fix.`],
+code:`// Client sets an overall deadline for the whole request chain.
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+// Downstream calls inherit the SAME deadline, not a fresh one each time.
+resp, err := paymentService.Charge(ctx, req)
+if err != nil {
+    if ctx.Err() == context.DeadlineExceeded {
+        // The whole chain ran out of time, not just this one call.
+        return errBudgetExhausted
+    }
+    return err
+}`,
+related:["Circuit Breaker", "Retry with Backoff & Jitter", "Cascading Failures & Metastability", "Bulkhead Pattern"],priority:"high"},
 
 // ---------------- DESIGN PATTERNS ----------------
 {cat:"PT", title:"Outbox Pattern", def:`To reliably publish an event whenever you write to your database (avoiding the "dual write" problem where the DB write succeeds but the message publish fails, or vice versa), write the event to an "outbox" table in the *same local transaction* as the business data change, then a separate relay process (or CDC tool like Debezium) reads the outbox and publishes to the message broker.`,
@@ -3653,6 +3716,47 @@ diagram:`<svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`When a transaction's status changes to "completed," the `+"`Transaction`"+` object notifies its registered observers — one observer sends a receipt email, another updates a real-time dashboard, another triggers loyalty-points calculation — and the core transaction-processing code doesn't need to know any of those things exist.`,
 trade:[`Decouples the thing that changes from the things that react to the change, making it easy to add new reactions later without touching existing code — but in a distributed system, this pattern is usually implemented via events on a message broker rather than in-process objects, since observers may live in entirely different services.`],related:["Event Sourcing"]},
 
+{cat:"PT", title:"Strangler Fig Pattern (Incremental Monolith Migration)", def:`Named after a vine that grows around a host tree and gradually takes over, this pattern replaces an old system piece by piece instead of a risky "big bang" rewrite where nothing works until the whole thing is finished.
+
+Identify a seam — a piece of functionality with a relatively clean boundary, like one specific API endpoint or business capability, that can be extracted on its own without untangling the entire system at once.
+
+Build the new implementation alongside the old one, without touching or removing anything in the legacy system yet.
+
+Route traffic for that seam to the new implementation through an intercepting layer, usually a proxy or gateway, while everything else keeps flowing to the legacy system exactly as before.
+
+Repeat, seam by seam, until the legacy system has nothing left routed to it and can finally be safely decommissioned.`,
+diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="75" width="90" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="65" y="105" text-anchor="middle" fill="var(--text)" font-size="10.5" font-weight="700">Client</text>
+
+  <line x1="110" y1="100" x2="165" y2="100" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#sf-a)"/>
+
+  <rect x="170" y="65" width="130" height="70" rx="6" fill="var(--panel-2)" stroke="var(--violet)" stroke-width="2"/>
+  <text x="235" y="90" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Routing Layer</text>
+  <text x="235" y="106" text-anchor="middle" fill="var(--text-faint)" font-size="8">decides per endpoint:</text>
+  <text x="235" y="119" text-anchor="middle" fill="var(--text-faint)" font-size="8">old system or new?</text>
+
+  <line x1="300" y1="80" x2="355" y2="45" stroke="var(--ledger)" stroke-width="2" marker-end="url(#sf-g)"/>
+  <rect x="360" y="15" width="150" height="45" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="435" y="35" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">New Service</text>
+  <text x="435" y="50" text-anchor="middle" fill="var(--ledger)" font-size="8.5">one extracted seam</text>
+
+  <line x1="300" y1="120" x2="355" y2="150" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#sf-r)"/>
+  <rect x="360" y="140" width="150" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="435" y="160" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Legacy Monolith</text>
+  <text x="435" y="175" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">everything not yet migrated</text>
+
+  <text x="280" y="195" text-anchor="middle" fill="var(--text-faint)" font-size="9">Each cycle shrinks the monolith and grows the new side — never a moment where nothing works</text>
+
+  <defs>
+    <marker id="sf-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+    <marker id="sf-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
+    <marker id="sf-r" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+  </defs>
+</svg>`,
+ex:`A fintech company's decade-old monolith handles accounts, payments, notifications, and reporting all in one codebase. The team wants to modernize payments without a risky rewrite, so they put a routing layer in front of the monolith and configure it to send only calls to /api/payments/* to a brand-new Payments service — everything else still goes to the monolith, unchanged. Once the new Payments service has run stably in production for a while, the next seam, like Notifications, gets extracted the exact same way, until the monolith eventually has nothing left routed to it but legacy reporting.`,
+trade:[`Slower than a full rewrite in wall-clock time to fully complete, but dramatically lower risk — the system stays fully operational and shippable at every point along the way, unlike a big-bang rewrite where nothing works until the entire thing is finished.`,`Running two systems side by side for an extended period, sometimes years, has real operational cost: double the infrastructure, double the on-call surface, and often duplicated logic that has to stay in sync, like both systems still checking permissions against the same legacy user database.`,`The routing layer itself becomes critical, business-important infrastructure that needs its own reliability investment — a bug in the routing rules can silently send production traffic to the wrong system, or leave a seam stuck in a confusing, half-migrated state.`],related:["Microservices vs SOA vs Monolith", "Blue-Green vs Canary Deployment", "Feature Flags"]},
+
 // ---------------- TESTING STRATEGY ----------------
 {cat:"TE", title:"Test Pyramid", def:`A guideline for how many tests of each type you should have, shaped like a pyramid.
 
@@ -3716,7 +3820,7 @@ diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="110" y="57" text-anchor="middle" fill="var(--ledger)" font-size="8.5">property: debits == credits</text>
   <line x1="200" y1="52" x2="260" y2="52" stroke="var(--border)" stroke-width="2" marker-end="url(#pbtArrow)"/>
   <defs><marker id="pbtArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker></defs>
-  <text x="230" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">generates 1000s of inputs</text>
+  <text x="220" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="7">generates many inputs</text>
   <rect x="265" y="35" width="60" height="18" fill="var(--panel)" stroke="var(--border)"/>
   <rect x="330" y="35" width="60" height="18" fill="var(--panel)" stroke="var(--border)"/>
   <rect x="265" y="57" width="60" height="18" fill="var(--red)" fill-opacity="0.2" stroke="var(--red)"/>
@@ -3789,7 +3893,7 @@ diagram:`<svg viewBox="0 0 480 180" xmlns="http://www.w3.org/2000/svg" font-fami
   <rect x="30" y="30" width="60" height="30" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
   <text x="60" y="49" text-anchor="middle" fill="var(--text)" font-size="9">App</text>
   <line x1="90" y1="45" x2="115" y2="45" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#cs-g2)"/>
-  <text x="102" y="38" fill="var(--ledger)" font-size="7">1. miss</text>
+  <text x="88" y="38" text-anchor="end" fill="var(--ledger)" font-size="7">1. miss</text>
   <rect x="120" y="30" width="60" height="30" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
   <text x="150" y="49" text-anchor="middle" fill="var(--text)" font-size="9">Cache</text>
   <line x1="60" y1="60" x2="60" y2="90" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#cs-g2)"/>
@@ -3812,8 +3916,7 @@ diagram:`<svg viewBox="0 0 480 180" xmlns="http://www.w3.org/2000/svg" font-fami
   <rect x="375" y="30" width="55" height="30" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
   <text x="402" y="49" text-anchor="middle" fill="var(--text)" font-size="9">App</text>
   <line x1="430" y1="45" x2="450" y2="45" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#cs-a2)"/>
-  <rect x="400" y="30" width="55" height="30" rx="5" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" style="display:none"/>
-  <text x="440" y="60" text-anchor="middle" fill="var(--amber)" font-size="7">fast, async later</text>
+  <text x="440" y="66" text-anchor="middle" fill="var(--amber)" font-size="7">fast, async later</text>
   <rect x="440" y="30" width="30" height="30" rx="5" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)"/>
   <text x="455" y="49" text-anchor="middle" fill="var(--text)" font-size="8">Cache</text>
   <line x1="455" y1="60" x2="425" y2="90" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#cs-a2)"/>
@@ -4420,13 +4523,47 @@ diagram:`<svg viewBox="0 0 560 120" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`Validating that a transfer amount is a positive number within expected bounds (not negative, not absurdly large, not a string containing SQL) prevents both attacks and accidental bugs. Separately, logging "user X approved refund Y at timestamp Z from IP W" in an immutable audit log means that if a dispute arises later about who authorized a refund, there's reliable evidence — this is often a regulatory requirement, not just a nice-to-have.`,
 trade:[`Validation should happen as early as possible (reject bad input immediately) but must be consistent everywhere data enters the system — a single unvalidated entry point undermines the protection everywhere else.`,`Audit logs must be tamper-resistant (append-only, ideally write-once storage) — a log an admin can quietly edit doesn't actually provide non-repudiation, since the "proof" could be altered.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "Regulatory Compliance Basics (SOC 2, GDPR, KYC/AML)"]},
 
+{cat:"SC", title:"Session & Cookie Security", def:`A session is how a server remembers "this request belongs to the same logged-in user" across multiple requests, typically via a token stored in a cookie. Getting the cookie's attributes and lifecycle right is its own distinct security surface, separate from the vulnerabilities it interacts with.
+
+HttpOnly — tells the browser to hide the cookie from JavaScript entirely, so even if an XSS vulnerability exists elsewhere on the page (covered elsewhere in this guide), an attacker's injected script can't read the session token directly.
+
+Secure — tells the browser to only ever send the cookie over HTTPS, never plain HTTP, so it can't be intercepted by a network eavesdropper on an unencrypted connection.
+
+SameSite — controls whether the cookie gets sent along with requests originating from a different site, which is the main defense against CSRF (covered elsewhere).
+
+Session expiry & rotation — a session shouldn't live forever. A reasonable idle timeout, an absolute maximum lifetime, and rotating the session token whenever privilege changes, like logging in or resetting a password, all limit how long a stolen token stays useful to an attacker.
+
+Session fixation — an attack where the attacker gets a victim to use a session ID the attacker already knows, for example by setting it before login, so the attacker is effectively already "logged in" the moment the victim authenticates on that same session. The fix is to always issue a brand-new session ID at the moment of login, never reusing whatever session ID existed beforehand.`,
+diagram:`<svg viewBox="0 0 600 140" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="20" width="560" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="36" y="42" fill="var(--text)" font-size="10.5" font-family="var(--mono)">Set-Cookie: session=abc123; HttpOnly; Secure; SameSite=Strict; Max-Age=3600</text>
+
+  <rect x="15" y="75" width="135" height="42" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
+  <text x="82" y="93" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">HttpOnly</text>
+  <text x="82" y="107" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">hidden from page JS</text>
+
+  <rect x="158" y="75" width="135" height="42" rx="5" fill="var(--panel-2)" stroke="var(--blue)"/>
+  <text x="225" y="93" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Secure</text>
+  <text x="225" y="107" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">HTTPS only, never HTTP</text>
+
+  <rect x="301" y="75" width="135" height="42" rx="5" fill="var(--panel-2)" stroke="var(--amber)"/>
+  <text x="368" y="93" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">SameSite</text>
+  <text x="368" y="107" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">blocks cross-site requests</text>
+
+  <rect x="444" y="75" width="140" height="42" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="514" y="93" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Max-Age</text>
+  <text x="514" y="107" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">limits stolen-token window</text>
+</svg>`,
+ex:`A banking web app sets its session cookie with HttpOnly (so an XSS bug elsewhere on the page can't steal the token via document.cookie), Secure (so it's never sent over an accidental plain-HTTP connection), and SameSite=Strict (so a malicious site can't ride the user's session into a state-changing request). It also enforces a 30-minute idle timeout and forces re-authentication for sensitive actions, like changing a linked bank account, even if the session itself hasn't technically expired yet.`,
+trade:[`SameSite=Strict is the most protective setting but breaks legitimate cross-site flows, like a user clicking a link from an email that should land them already logged in. SameSite=Lax is a common middle ground that still blocks the CSRF-relevant cases, state-changing POST requests, while allowing normal top-level navigation to work.`,`Rotating session tokens on every privilege change adds real engineering surface — every login flow, password reset, and permission-upgrade path needs to remember to do it, and it's exactly the kind of step that's easy to forget on a secondary, less-tested auth path like an admin impersonation feature.`,`Short session lifetimes are more secure but push more friction onto legitimate users, who now have to re-authenticate more often. The right balance depends on how sensitive the actions available in that session actually are, not one fixed number that fits every application equally.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "CORS (Cross-Origin Resource Sharing)", "AuthN vs AuthZ (OAuth2 / OIDC / JWT)"],priority:"high"},
+
 // ---------------- MULTI-REGION / LB / DR ----------------
 {cat:"MR", title:"Load Balancing Algorithms (L4 vs L7)", def:`L4 (transport layer) — balances traffic based only on IP address and port, without understanding what's actually inside the request. Fast and simple, but can't make smart decisions based on the content of the request.
 
 L7 (application layer) — actually understands HTTP, so it can route based on the URL path, headers, or cookies. This enables smarter routing (like sending only certain paths to a new service version), at the cost of a bit more processing per request.
 
 Common algorithms for choosing which server gets the next request: round robin (just cycle through servers in order), least connections (send it to whichever server currently has the fewest active connections), and consistent hashing (route the same kind of request to the same server every time, useful for cache or session affinity).`,
-diagram:`<svg viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+diagram:`<svg viewBox="0 0 560 290" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <circle cx="40" cy="140" r="26" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
   <text x="40" y="145" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="600">Client</text>
 
@@ -4441,27 +4578,29 @@ diagram:`<svg viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" font-fami
   <line x1="66" y1="130" x2="115" y2="70" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#lb-x)"/>
   <line x1="66" y1="150" x2="115" y2="215" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#lb-x)"/>
 
-  <line x1="260" y1="50" x2="330" y2="30" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
-  <line x1="260" y1="65" x2="330" y2="70" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
-  <line x1="260" y1="80" x2="330" y2="105" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
-  <text x="290" y="20" fill="var(--text-faint)" font-size="9.5">round robin /</text>
-  <text x="290" y="115" fill="var(--text-faint)" font-size="9.5">any server, no content awareness</text>
+  <line x1="260" y1="50" x2="385" y2="30" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
+  <line x1="260" y1="65" x2="385" y2="70" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
+  <line x1="260" y1="80" x2="385" y2="105" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#lb-b)"/>
 
-  <rect x="335" y="15" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="380" y="35" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 1</text>
-  <rect x="335" y="55" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="380" y="75" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 2</text>
-  <rect x="335" y="90" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="380" y="110" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 3</text>
+  <rect x="390" y="15" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="435" y="35" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 1</text>
+  <rect x="390" y="55" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="435" y="75" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 2</text>
+  <rect x="390" y="90" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="435" y="110" text-anchor="middle" fill="var(--text)" font-size="10.5">Server 3</text>
 
-  <line x1="260" y1="210" x2="330" y2="190" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#lb-am)"/>
-  <line x1="260" y1="225" x2="330" y2="230" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#lb-am)"/>
-  <text x="380" y="180" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-weight="600">/api/v2/* →</text>
+  <line x1="260" y1="210" x2="385" y2="190" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#lb-am)"/>
+  <line x1="260" y1="225" x2="385" y2="230" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#lb-am)"/>
 
-  <rect x="335" y="175" width="90" height="30" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
-  <text x="380" y="195" text-anchor="middle" fill="var(--text)" font-size="10">v2 service</text>
-  <rect x="335" y="215" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="380" y="235" text-anchor="middle" fill="var(--text)" font-size="10">v1 (legacy)</text>
+  <rect x="390" y="175" width="90" height="30" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
+  <text x="435" y="195" text-anchor="middle" fill="var(--text)" font-size="10">v2 service</text>
+  <rect x="390" y="215" width="90" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="435" y="235" text-anchor="middle" fill="var(--text)" font-size="10">v1 (legacy)</text>
+
+  <text x="190" y="115" text-anchor="middle" fill="var(--text-faint)" font-size="9">Round robin / least connections</text>
+  <text x="190" y="128" text-anchor="middle" fill="var(--text-faint)" font-size="9">No visibility into request content</text>
+
+  <text x="190" y="268" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">/api/v2/* → new service, everything else → legacy</text>
 
   <defs>
     <marker id="lb-x" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
@@ -4576,6 +4715,52 @@ diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A quarterly DR drill fails over a payments platform's live traffic to its secondary region for one hour. The drill reveals that the secondary region's database connection pool was sized for the standby's usual idle load, not full production traffic — a problem that would have caused a second outage on top of the first, discovered safely in a drill instead of during a real primary-region failure.`,
 trade:[`Running a real failover against production traffic is the only way to find the failure modes that a tabletop exercise or a staging-only test would miss, but it carries genuine risk to real users during the drill itself — this is why drills need their own careful blast-radius planning, rollback criteria, and often start in lower-stakes environments before graduating to production.`,`DR testing has an ongoing cost (engineering time, the operational risk of each drill) that's easy to deprioritize when nothing has gone wrong recently — but an RTO/RPO target that has never been tested against reality is a hope, not a guarantee.`],related:["RTO vs RPO", "Backup Strategies & Point-in-Time Recovery", "Chaos Engineering"]},
+
+{cat:"MR", title:"Geo-Aware Traffic Routing (GeoDNS & Latency-Based Routing)", def:`Once a system runs in multiple regions, something has to decide which region a given user's request actually lands in — a plain DNS record or a single load balancer in one place doesn't do this on its own.
+
+GeoDNS — the DNS server answers differently depending on the geographic location of the requester, inferred from their resolver's IP, returning the address of the nearest regional deployment before a connection is even made.
+
+Latency-based routing — instead of, or in addition to, geographic distance, route based on measured network latency from different vantage points to each region, since geographically closer isn't always actually faster — network topology doesn't always follow geography.
+
+Health-aware routing — combine either approach with active health checks, so a region that's technically nearest but currently unhealthy or overloaded is automatically excluded, sending users to the next-best healthy region instead.`,
+diagram:`<svg viewBox="0 0 580 210" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="20" width="90" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="65" y="41" text-anchor="middle" fill="var(--text)" font-size="9.5">User (EU)</text>
+  <rect x="20" y="88" width="90" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="65" y="109" text-anchor="middle" fill="var(--text)" font-size="9.5">User (US)</text>
+  <rect x="20" y="156" width="90" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="65" y="177" text-anchor="middle" fill="var(--text)" font-size="9.5">User (APAC)</text>
+
+  <rect x="230" y="70" width="130" height="70" rx="6" fill="var(--panel-2)" stroke="var(--violet)" stroke-width="2"/>
+  <text x="295" y="95" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">GeoDNS +</text>
+  <text x="295" y="110" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Health Checks</text>
+  <text x="295" y="126" text-anchor="middle" fill="var(--text-faint)" font-size="8">nearest healthy region</text>
+
+  <line x1="110" y1="37" x2="230" y2="90" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#gr-a)"/>
+  <line x1="110" y1="105" x2="230" y2="105" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#gr-a)"/>
+  <line x1="110" y1="173" x2="230" y2="120" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#gr-a)"/>
+
+  <rect x="460" y="10" width="100" height="34" rx="5" fill="var(--red)" fill-opacity="0.14" stroke="var(--red)" stroke-width="2"/>
+  <text x="510" y="31" text-anchor="middle" fill="var(--text)" font-size="9.5">EU — unhealthy</text>
+  <rect x="460" y="88" width="100" height="34" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="510" y="109" text-anchor="middle" fill="var(--text)" font-size="9.5">US — healthy</text>
+  <rect x="460" y="166" width="100" height="34" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="510" y="187" text-anchor="middle" fill="var(--text)" font-size="9.5">APAC — healthy</text>
+
+  <line x1="360" y1="95" x2="455" y2="30" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <line x1="360" y1="105" x2="455" y2="105" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#gr-g)"/>
+  <line x1="360" y1="115" x2="455" y2="183" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#gr-g)"/>
+  <line x1="360" y1="95" x2="455" y2="105" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#gr-g)"/>
+
+  <text x="295" y="200" text-anchor="middle" fill="var(--text-faint)" font-size="9">EU is nearest for the EU user, but unhealthy — rerouted to the next-best healthy region instead</text>
+
+  <defs>
+    <marker id="gr-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+    <marker id="gr-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
+  </defs>
+</svg>`,
+ex:`A global payments platform runs full regional deployments in the US, EU, and APAC. A customer in Germany resolves the API's domain name and, thanks to GeoDNS, gets back the EU region's address instead of the US one, so their request never has to cross the Atlantic for a normal call. If the EU region is later marked unhealthy during an incident, the same system stops returning the EU address for new lookups, and German customers are instead routed to the next-nearest healthy region until EU recovers, with no client-side change or manual DNS update needed.`,
+trade:[`DNS-based routing changes aren't instant — DNS records have a TTL (time-to-live), and clients or resolvers that already cached the old answer keep using it until that TTL expires, putting a real floor on how fast failover can happen this way, unlike a load balancer that can react in seconds.`,`GeoDNS infers location from the resolver's IP, not always the actual client's location — a user behind a large ISP or corporate VPN that resolves DNS somewhere geographically different from the user themselves can occasionally get routed to the "wrong" region.`,`Latency-based routing requires ongoing, real measurement infrastructure, or a third-party provider that already has it, making it meaningfully more operationally complex than simple GeoDNS — worth the added cost only once "nearest by geography" and "actually fastest" meaningfully diverge for your specific users and network paths.`],related:["Load Balancing Algorithms (L4 vs L7)", "Active-Active vs Active-Passive", "DNS: How Domain Name Resolution Works"]},
 
 // ---------------- FINTECH-SPECIFIC ----------------
 {cat:"FT", title:"Double-Entry Bookkeeping", def:`Every financial transaction is recorded as at least two balanced entries — a debit to one account and an equal credit to another — so the books are always mathematically self-consistent (total debits always equal total credits) and every movement of money has a fully traceable counterpart.`,
@@ -4720,7 +4905,7 @@ diagram:`<svg viewBox="0 0 560 120" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="207" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">individual rights over data</text>
   <rect x="280" y="25" width="125" height="60" rx="6" fill="var(--red)" fill-opacity="0.12" stroke="var(--red)" stroke-width="2"/>
   <text x="342" y="48" text-anchor="middle" fill="var(--red)" font-size="10" font-weight="600">KYC</text>
-  <text x="342" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">verify identity before moving money</text>
+  <text x="342" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">verify customer identity</text>
   <rect x="415" y="25" width="125" height="60" rx="6" fill="var(--text)" fill-opacity="0.1" stroke="var(--border)" stroke-width="2"/>
   <text x="477" y="48" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">AML</text>
   <text x="477" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">monitor for laundering patterns</text>
@@ -4840,7 +5025,7 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="130" y="18" text-anchor="middle" fill="var(--red)" font-size="10.5" font-weight="600">Naive: check then move (2 steps)</text>
   <rect x="30" y="30" width="90" height="26" fill="var(--panel)" stroke="var(--border)"/>
   <text x="75" y="47" text-anchor="middle" fill="var(--text-dim)" font-size="8">1. SELECT balance</text>
-  <text x="130" y="42" fill="var(--red)" font-size="10" font-weight="700">⚡ gap</text>
+  <text x="123" y="42" text-anchor="end" fill="var(--red)" font-size="10" font-weight="700">⚡ gap</text>
   <rect x="150" y="30" width="90" height="26" fill="var(--panel)" stroke="var(--border)"/>
   <text x="195" y="47" text-anchor="middle" fill="var(--text-dim)" font-size="8">2. UPDATE balance</text>
   <text x="130" y="75" text-anchor="middle" fill="var(--red)" font-size="8.5">a second request can read stale data in this gap</text>
@@ -4901,6 +5086,116 @@ Step 3 — Write the new balance and commit, still inside that same transaction,
 Step 4 — If a conditional update is preferred over an explicit lock, collapse steps 1–3 into one atomic statement instead: \`UPDATE wallets SET balance = balance - 80 WHERE id = ? AND balance >= 80\`, then check the affected row count — zero rows affected means insufficient funds, atomically, with no separate read step at all.
 
 This adds real latency and lock contention on frequently-withdrawn-from wallets, which is the direct cost of buying back correctness.`,`Catching this class of bug in testing is hard precisely because it's timing-dependent — a test suite that runs requests sequentially, or even most concurrent load tests, can pass cleanly while the exact interleaving that causes the overdraft happens rarely enough in production to go unnoticed for a long time before it's finally hit at scale. Property-Based Testing for Financial Calculations and Testing Concurrency & Idempotency (both covered elsewhere) are specifically aimed at forcing this kind of interleaving to surface before production does.`,`Detecting it after the fact (rather than preventing it) usually falls to Reconciliation (covered elsewhere) — a scheduled job comparing the sum of ledger entries against the stored balance field catches this kind of drift, but only after the money has already moved, which is why prevention at write time is still the primary defense.`],related:["Race Conditions & Data Races", "Pessimistic Locking", "Idempotent Money Movement & Double-Spend Prevention"],priority:"high"},
+
+{cat:"FT", title:"Payment Lifecycle: Authorization, Capture, Refund, Reversal & Void", def:`Money moving through a card payment doesn't happen in one atomic step — it passes through a sequence of distinct states, and knowing which one you're in determines which operation, and which API call, is actually correct.
+
+Authorization (hold) — the card network and issuing bank confirm the funds or credit are available and place a temporary hold, but no money has actually moved yet. This is what happens the moment a customer submits a card at checkout.
+
+Capture — the merchant actually collects the previously-authorized funds. This can happen at the same moment as authorization ("auth and capture" in one step, common for e-commerce that ships instantly) or be deliberately delayed, like a hotel authorizing at check-in but capturing at check-out, or a retailer capturing only once an order actually ships.
+
+Void — canceling an authorization before it's captured. Since no money ever moved, voiding just releases the hold. This is not the same operation as a refund, and most payment processors reject a void request against a transaction that's already been captured.
+
+Refund — returning money after it has already been captured and settled. This is a brand-new, separate money movement in the reverse direction, not an undo of the original one.
+
+Reversal — canceling a transaction after authorization but within a narrow window before it fully settles, sometimes offered by a processor as a cheaper, faster alternative to a full refund since the funds haven't technically left yet. This window is short and not guaranteed, so it can't be relied on as the default cancellation path.`,
+diagram:`<svg viewBox="0 0 620 220" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="80" width="110" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="75" y="110" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Authorize</text>
+
+  <line x1="130" y1="105" x2="185" y2="105" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#pl-a)"/>
+
+  <rect x="190" y="80" width="110" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="245" y="110" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Capture</text>
+
+  <line x1="300" y1="105" x2="355" y2="105" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#pl-a)"/>
+
+  <rect x="360" y="80" width="110" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="415" y="110" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Settle</text>
+
+  <line x1="470" y1="105" x2="525" y2="105" stroke="var(--red)" stroke-width="2" marker-end="url(#pl-r)"/>
+
+  <rect x="530" y="80" width="80" height="50" rx="6" fill="var(--red)" fill-opacity="0.14" stroke="var(--red)" stroke-width="2"/>
+  <text x="570" y="102" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Refund</text>
+  <text x="570" y="118" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">after settle</text>
+
+  <line x1="75" y1="80" x2="75" y2="45" stroke="var(--amber)" stroke-width="2" marker-end="url(#pl-v)"/>
+  <rect x="10" y="10" width="150" height="35" rx="6" fill="var(--amber)" fill-opacity="0.14" stroke="var(--amber)" stroke-width="2"/>
+  <text x="85" y="32" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Void — before capture</text>
+
+  <text x="320" y="170" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Void and Refund run through different processor operations — only one applies at each stage</text>
+
+  <defs>
+    <marker id="pl-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+    <marker id="pl-r" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--red)"/></marker>
+    <marker id="pl-v" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--amber)"/></marker>
+  </defs>
+</svg>`,
+ex:`An online retailer authorizes a customer's card for $50 the moment they check out — a hold is placed, no money moves. Two days later, when the order actually ships, the retailer captures the $50, and the real money movement happens now. If the customer cancels before the order ships, the retailer voids the original authorization instead — the hold is simply released, and no refund is ever issued because no capture ever happened. If the customer instead returns the item after delivery, after capture and settlement, the retailer processes a refund: a new transaction moving $50 back to the customer, tracked as its own separate entry in the ledger rather than as a cancellation of the original charge.`,
+trade:[`Confusing void with refund is a common, costly bug: calling a payment processor's refund API against an authorization that was never captured either fails outright, or on some processors silently does nothing useful, since the two operations run through completely different internal code paths on the processor's side.`,`An authorization hold isn't free to the customer even though no money technically moved — it reduces their available balance or credit limit for anywhere from a few hours to several days depending on the card network and issuing bank, which is a real, if temporary, source of confused customer support tickets ("why is my balance lower than my transaction history shows") that's worth designing for explicitly.`,`Reversal availability is narrow and time-sensitive, often only within the same settlement batch or business day, so it can't be the default cancellation path in application logic — refund has to be the fallback every system supports, with reversal treated as an optional, best-effort optimization when the timing happens to line up.`],related:["Chargebacks & Disputes", "Idempotency Keys in Payment APIs", "Settlement & Clearing (T+1/T+2)", "Double-Entry Bookkeeping"],priority:"high"},
+
+{cat:"FT", title:"Marketplace Payments: Split Payments & Escrow", def:`A marketplace or platform business sits between a buyer and one or more sellers — it collects money from the buyer, but it isn't the final recipient of most of it, which creates two distinct engineering problems beyond a normal two-party payment.
+
+Escrow — holding the buyer's payment in a separate, non-operating account rather than releasing it to the seller immediately, until some condition is met: delivery confirmed, a time window passes, a dispute period closes. The platform is temporarily custodian of money that isn't its own.
+
+Split payments — dividing a single payment across multiple destination accounts once it is released, typically a percentage to the seller and a percentage retained as a platform fee, rather than the platform receiving the full amount and then separately paying the seller out later.
+
+Most platforms don't build the custody and money-movement logic themselves. Holding other people's money, even briefly, can trigger money transmitter licensing requirements that vary by jurisdiction, so the standard approach is to use a payment processor's built-in marketplace or split-payment product, like Stripe Connect or Adyen for Platforms, which handles the regulated custody piece while the platform just configures the split percentages and release triggers.`,
+diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="75" width="100" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="70" y="105" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Buyer</text>
+
+  <line x1="120" y1="100" x2="175" y2="100" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#mp-a)"/>
+  <text x="147" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="8">$100</text>
+
+  <rect x="180" y="65" width="140" height="70" rx="6" fill="var(--amber)" fill-opacity="0.12" stroke="var(--amber)" stroke-width="2"/>
+  <text x="250" y="92" text-anchor="middle" fill="var(--text)" font-size="10.5" font-weight="700">Escrow</text>
+  <text x="250" y="108" text-anchor="middle" fill="var(--text-faint)" font-size="8">held until release</text>
+  <text x="250" y="122" text-anchor="middle" fill="var(--text-faint)" font-size="8">condition is met</text>
+
+  <line x1="320" y1="85" x2="380" y2="55" stroke="var(--ledger)" stroke-width="2" marker-end="url(#mp-g)"/>
+  <rect x="385" y="25" width="130" height="45" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="450" y="45" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Seller</text>
+  <text x="450" y="60" text-anchor="middle" fill="var(--ledger)" font-size="9" font-weight="600">$85</text>
+
+  <line x1="320" y1="115" x2="380" y2="145" stroke="var(--blue)" stroke-width="2" marker-end="url(#mp-b)"/>
+  <rect x="385" y="130" width="130" height="45" rx="6" fill="var(--panel-2)" stroke="var(--blue)" stroke-width="2"/>
+  <text x="450" y="150" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Platform fee</text>
+  <text x="450" y="165" text-anchor="middle" fill="var(--blue)" font-size="9" font-weight="600">$15</text>
+
+  <defs>
+    <marker id="mp-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+    <marker id="mp-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
+    <marker id="mp-b" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--blue)"/></marker>
+  </defs>
+</svg>`,
+ex:`A freelance services marketplace charges a client $100 for a completed project. The full $100 is held in escrow rather than released immediately. Once the client marks the work as accepted, or a defined review window passes without a dispute, the platform triggers a split payout: $85 to the freelancer, $15 retained as the platform's fee, executed through the payment processor's Connect-style API, which actually owns the regulated custody of the funds throughout, rather than the platform itself ever directly holding client money in its own bank account.`,
+trade:[`Holding customer funds before releasing them to the ultimate recipient is regulated differently, and often much more heavily, than simply passing a payment straight through — which is exactly why almost no platform builds this themselves from scratch, and instead configures an existing payment processor's marketplace product rather than treating it as a normal application feature to build in-house.`,`The escrow release trigger has to be genuinely reliable — releasing too early defeats the point of escrow entirely, since the buyer has no leverage if something goes wrong after release, while a bug in the "mark complete" or dispute-window logic that releases funds incorrectly creates real financial and support cost, not just an inconvenience.`,`Split percentages and fees need to be decided and locked in before the payment happens, not computed after the fact — recalculating a split retroactively, say after a promotional discount is applied, is a common source of reconciliation mismatches between what the platform's ledger says and what the payment processor's records say actually moved.`],related:["Ledger Design (Immutable Append-Only Ledger)", "Regulatory Compliance Basics (SOC 2, GDPR, KYC/AML)", "Double-Entry Bookkeeping"]},
+
+{cat:"FT", title:"Interest Calculation & Day-Count Conventions", def:`A day-count convention is a rule for how many days count as "a year," or a month, when calculating interest over a partial period — and different conventions produce genuinely different interest amounts for the exact same principal, rate, and calendar dates, which is why picking, and consistently applying, the right one matters.
+
+Actual/365 — count the exact number of calendar days elapsed, divide by 365 regardless of leap years. Common for many consumer credit products.
+
+Actual/360 — count the exact number of days elapsed, but divide by 360 instead of 365. A convention with roots in manual, pre-computer-era calculation, still standard for many money-market instruments and commercial loans, and it produces slightly more interest than Actual/365 for the same nominal annual rate, since the same numerator is divided by a smaller number.
+
+30/360 — treat every month as if it has exactly 30 days and every year as exactly 360 days, ignoring the real calendar. Common in bond markets, where it simplifies comparing instruments with different payment schedules.
+
+None of these is universally "correct" — different products and jurisdictions conventionally use different bases, so a system handling more than one interest-bearing product usually needs the convention to be an explicit, per-product configuration value, not a single global constant.`,
+diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="280" y="24" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">$1,000,000 at 5% for the same 90 actual days — same rate, different result</text>
+
+  <text x="130" y="62" text-anchor="end" fill="var(--text)" font-size="10.5" font-weight="600">Actual/365</text>
+  <rect x="140" y="48" width="276" height="26" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
+  <text x="424" y="65" fill="var(--text)" font-size="10.5" font-weight="700">$12,328.77</text>
+
+  <text x="130" y="104" text-anchor="end" fill="var(--text)" font-size="10.5" font-weight="600">Actual/360</text>
+  <rect x="140" y="90" width="280" height="26" rx="4" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)"/>
+  <text x="428" y="107" fill="var(--text)" font-size="10.5" font-weight="700">$12,500.00</text>
+
+  <text x="280" y="150" text-anchor="middle" fill="var(--text-faint)" font-size="10">Same principal, same rate, same calendar days — a $171.23 gap from the divisor alone</text>
+  <text x="280" y="168" text-anchor="middle" fill="var(--text-faint)" font-size="9">That gap compounds across every payment, every account, for the life of the product</text>
+</svg>`,
+ex:`A commercial lender's system calculates monthly interest accrual using Actual/360 for a business line of credit, matching the convention specified in the loan agreement, while a separate consumer savings product on the same platform accrues interest using Actual/365. A junior engineer building a shared "calculate interest" utility function assumes one convention applies everywhere and hardcodes a 365 divisor — the business line of credit now silently under-calculates interest owed on every statement, a discrepancy that doesn't crash anything and isn't visible in any single transaction, but shows up months later as a material gap when finance reconciles accrued interest against the loan agreements.`,
+trade:[`A wrong day-count convention doesn't produce an obviously broken number — every individual calculation still looks like a plausible dollar amount, which is exactly why this bug class survives code review and manual QA, and is usually only caught by reconciliation against an independent source (the loan agreement terms, or a second system) or by property-based testing that checks the math against known reference values.`,`The convention has to be a property of the product, or even the individual contract, since some loan agreements negotiate a specific basis, not a system-wide constant — a platform serving multiple financial products needs this to be explicit, stored configuration, not an assumption baked into shared calculation code.`],related:["Modeling Money Correctly", "Multi-Currency Handling & Rounding", "Property-Based Testing for Financial Calculations"],priority:"high"},
 
 // ---------------- DB PERFORMANCE AT SCALE ----------------
 {cat:"PF", title:"Finding Slow Queries", def:`The first, cheapest step in any DB performance investigation, usually done with three complementary tools.
@@ -5226,7 +5521,7 @@ diagram:`<svg viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg" font-fami
 
   <rect x="260" y="208" width="90" height="55" rx="6" fill="var(--red)" fill-opacity="0.18" stroke="var(--red)" stroke-dasharray="5,3"/>
   <text x="305" y="232" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">Pod 3</text>
-  <text x="305" y="248" text-anchor="middle" fill="var(--red)" font-size="10" font-weight="600">crashed → restarting</text>
+  <text x="305" y="248" text-anchor="middle" fill="var(--red)" font-size="9" font-weight="600">crashed → restarting</text>
 
   <rect x="360" y="208" width="90" height="55" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
   <text x="405" y="238" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">Pod 4</text>
