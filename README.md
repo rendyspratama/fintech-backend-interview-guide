@@ -10,10 +10,14 @@ A free, searchable reference for senior backend engineering interview prep — b
 
 A single self-contained HTML file — no build step, no server, no dependencies beyond a font CDN link. Open it locally or visit the live site, and you get:
 
-- **150+ topics** across 18 categories: networking fundamentals, distributed systems, concurrency, databases, reliability, design patterns, security, fintech-specific concerns (double-entry ledgers, PCI-DSS, reconciliation), and more
-- Each topic has a plain-language **definition**, a concrete **fintech-grounded example**, and honest **trade-offs** — not just a list of upsides
-- **Search** (press `/`) that filters as you type
-- **Progress tracking** — mark topics as reviewed, saved locally in your browser
+- **178 topics** across 19 categories: CS/programming fundamentals, networking, distributed systems, concurrency, databases, reliability, design patterns, security, fintech-specific concerns (double-entry ledgers, PCI-DSS, reconciliation, payment rails, ledger design), and more
+- Each topic has a plain-language **definition**, often a **diagram**, a concrete **fintech-grounded example**, and honest **trade-offs** — not just a list of upsides
+- **Search** (press `/`) that filters as you type, plus a **command palette** (`⌘K` / `Ctrl+K`) to jump straight to any topic by title
+- **Filter the sidebar** by High-Yield, Starred, Unreviewed, or Weak Spots — combine any of them
+- **See Also** links connecting related topics, so you can follow a concept across categories
+- **High-Yield tags** flagging the topics most likely to come up under interview time pressure
+- **Recall Mode** — active-recall practice (title first, definition hidden until you reveal it) with real spaced repetition: topics you keep missing come back more often across sessions, ones you've nailed repeatedly taper off
+- **Bookmarks and personal notes** per topic, plus progress tracking — all saved locally in your browser
 - **Light/dark mode**, sized for comfortable long reading sessions
 
 ## Why it exists
@@ -25,7 +29,7 @@ Most interview-prep material either stays too abstract ("here's what CAP theorem
 There's nothing to install. Download `index.html` and open it in any browser:
 
 ```bash
-git clone https://github.com/rendyspratamarendyspratama/fintech-backend-interview-guide.git
+git clone https://github.com/rendyspratama/fintech-backend-interview-guide.git
 cd fintech-backend-interview-guide
 open index.html   # or just double-click it
 ```
