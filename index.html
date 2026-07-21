@@ -395,7 +395,7 @@
       background:var(--panel);border:1px solid var(--border);color:var(--text);
       width:38px;height:38px;border-radius:8px;align-items:center;justify-content:center;cursor:pointer;
     }
-    .landing,.topic-view{padding:80px clamp(16px,5vw,22px) 60px clamp(16px,5vw,22px);max-width:100%;}
+    .landing,.topic-view,.recall-view{padding:80px clamp(16px,5vw,22px) 60px clamp(16px,5vw,22px);max-width:100%;}
     #overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15;}
     #overlay.show{display:block;}
   }
@@ -408,6 +408,9 @@
     .card p,.card li{font-size:15px;max-width:none;}
     .landing .stat-row{gap:20px;}
     .stat{min-width:96px;}
+    .recall-title-card{padding:32px 18px;}
+    .recall-title-card h2{font-size:20px;}
+    .recall-actions,.recall-complete-actions{flex-direction:column;}
   }
 
   /* Large desktop / wide monitors: let the content column grow further so it doesn't
@@ -3541,31 +3544,6 @@ trade:[`Guarantees you never "forget" to publish an event, since it reads from t
 
 {cat:"PT", title:"Dead Letter Queue (DLQ)", def:`A separate queue where messages get moved after they repeatedly fail to be processed (instead of blocking the main queue forever or being silently dropped) — so a broken or malformed message doesn't stop every message behind it, and someone can investigate it later.`,
 diagram:`<svg viewBox="0 0 480 160" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
-  <rect x="20" y="50" width="60" height="35" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
-  <text x="50" y="72" text-anchor="middle" fill="var(--text)" font-size="10">msg 1</text>
-  <rect x="85" y="50" width="60" height="35" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)"/>
-  <text x="115" y="72" text-anchor="middle" fill="var(--text)" font-size="10">msg 2</text>
-  <rect x="150" y="50" width="60" height="35" rx="5" fill="var(--red)" fill-opacity="0.2" stroke="var(--red)"/>
-  <text x="180" y="66" text-anchor="middle" fill="var(--text)" font-size="9">msg 3</text>
-  <text x="180" y="78" text-anchor="middle" fill="var(--red)" font-size="8" font-weight="600">fails ×5</text>
-  <rect x="215" y="50" width="60" height="35" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="245" y="72" text-anchor="middle" fill="var(--text)" font-size="10">msg 4</text>
-
-  <text x="145" y="30" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Main queue keeps flowing →</text>
-
-  <line x1="180" y1="85" x2="180" y2="115" stroke="var(--red)" stroke-width="2" marker-end="url(#dq-r)"/>
-  <rect x="330" y="50" width="120" height="45" rx="6" fill="var(--red)" fill-opacity="0.12" stroke="var(--red)" stroke-width="2"/>
-  <text x="390" y="70" text-anchor="middle" fill="var(--red)" font-size="11" font-weight="700">Dead Letter Queue</text>
-  <text x="390" y="85" text-anchor="middle" fill="var(--text-dim)" font-size="9">for later inspection</text>
-  <line x1="210" y1="70" x2="325" y2="70" stroke="var(--red)" stroke-width="2" marker-end="url(#dq-r)"/>
-
-  <text x="240" y="135" text-anchor="middle" fill="var(--text-faint)" font-size="10.5">msg 3 doesn't block msg 4 and beyond</text>
-
-  <defs>
-    <marker id="dq-r" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--red)"/></marker>
-  </defs>
-</svg>`,
-diagram:`<svg viewBox="0 0 480 160" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <rect x="20" y="50" width="70" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
   <text x="55" y="74" text-anchor="middle" fill="var(--text)" font-size="10">msg 4</text>
   <rect x="95" y="50" width="70" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
@@ -3630,16 +3608,6 @@ trade:[`Centralizes and simplifies object-creation logic that would otherwise be
 
 {cat:"PT", title:"Decorator Pattern", def:`Wraps an object to add extra behavior before or after its original behavior, without changing its code — you can stack multiple decorators to combine behaviors, like layers around a core function.`,
 diagram:`<svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
-  <rect x="20" y="20" width="360" height="160" rx="10" fill="none" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5,3"/>
-  <text x="200" y="35" text-anchor="middle" fill="var(--amber)" font-size="10.5" font-weight="600">Rate Limiting</text>
-  <rect x="40" y="45" width="320" height="120" rx="10" fill="none" stroke="var(--blue)" stroke-width="2" stroke-dasharray="5,3"/>
-  <text x="200" y="60" text-anchor="middle" fill="var(--blue)" font-size="10.5" font-weight="600">Authentication</text>
-  <rect x="60" y="70" width="280" height="80" rx="10" fill="none" stroke="var(--ledger)" stroke-width="2" stroke-dasharray="5,3"/>
-  <text x="200" y="85" text-anchor="middle" fill="var(--ledger)" font-size="10.5" font-weight="600">Logging</text>
-  <rect x="110" y="95" width="180" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
-  <text x="200" y="122" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">Core Handler</text>
-</svg>`,
-diagram:`<svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <rect x="40" y="20" width="320" height="160" rx="10" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
   <text x="200" y="38" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-weight="600">Rate Limiting decorator</text>
 
@@ -3658,29 +3626,6 @@ ex:`An API request handler is wrapped with a logging decorator, then an authenti
 trade:[`Lets you compose behaviors flexibly without a combinatorial explosion of subclasses (e.g., "LoggedAuthenticatedRateLimitedHandler"), but too many stacked decorators can make it hard to trace exactly what happens to a request, since the logic is spread across many small wrapper layers instead of one place.`],related:["Adapter Pattern"]},
 
 {cat:"PT", title:"Observer Pattern", def:`An object (the "subject") maintains a list of dependents ("observers") and automatically notifies them whenever its state changes, without the subject needing to know any details about what its observers actually do with that notification.`,
-diagram:`<svg viewBox="0 0 460 180" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
-  <rect x="20" y="65" width="110" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
-  <text x="75" y="95" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">Transaction</text>
-
-  <line x1="130" y1="80" x2="200" y2="35" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#ob-g)"/>
-  <line x1="130" y1="90" x2="200" y2="90" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#ob-g)"/>
-  <line x1="130" y1="100" x2="200" y2="145" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#ob-g)"/>
-
-  <rect x="205" y="15" width="110" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="260" y="40" text-anchor="middle" fill="var(--text)" font-size="10.5">Email receipt</text>
-
-  <rect x="205" y="70" width="110" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="260" y="95" text-anchor="middle" fill="var(--text)" font-size="10.5">Dashboard update</text>
-
-  <rect x="205" y="125" width="110" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="260" y="150" text-anchor="middle" fill="var(--text)" font-size="10.5">Loyalty points</text>
-
-  <text x="230" y="175" text-anchor="middle" fill="var(--text-faint)" font-size="10">Subject doesn't know or care what each observer does</text>
-
-  <defs>
-    <marker id="ob-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
-  </defs>
-</svg>`,
 diagram:`<svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <rect x="180" y="20" width="120" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
   <text x="240" y="42" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="700">Transaction</text>
@@ -5757,7 +5702,7 @@ function renderNav(filterText){
     const matches = topics.filter(t=>{
       if(!topicMatchesFilters(t)) return false;
       if(!q) return true;
-      return (t.title+" "+t.def+" "+t.ex).toLowerCase().includes(q);
+      return (t.title+" "+t.def+" "+t.ex+" "+t.trade.join(" ")+" "+(t.code||"")).toLowerCase().includes(q);
     });
     if(matches.length===0) return;
     totalShown += matches.length;
