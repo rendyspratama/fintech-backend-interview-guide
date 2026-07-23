@@ -548,7 +548,7 @@ diagram:`<svg viewBox="0 0 700 430" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="568" y="61" fill="var(--pink)" font-size="13" font-weight="600">O(n!)</text>
 </svg>`,
 ex:`A service checking "has this idempotency key already been used?" by looping through a list of the last 10,000 keys checking each one (O(n) per check) works fine in a demo with 50 keys, but becomes a real, measurable bottleneck at production volume. Storing those keys in a hash map (or a proper key-value store like Redis) instead makes that same check close to instant, regardless of how many keys exist — this is exactly the kind of practical, "which data structure" decision that shows up constantly in real backend code, even though it looks like a simple choice.`,
-trade:[`Understanding Big-O isn't about memorizing academic notation — it's a practical tool for spotting the difference between code that will scale and code that will quietly become a production incident once the data volume grows past what anyone tested with.`,`This guide deliberately doesn't go deep into algorithm design or whiteboard-style coding-interview problems — the goal here is recognizing when a data-structure choice matters in real backend code, not mastering algorithmic puzzle-solving.`],related:["Indexing Strategy", "Index Types: B-Tree vs Hash vs LSM-Tree"]},
+trade:[`Understanding Big-O isn't about memorizing academic notation — it's a practical tool for spotting the difference between code that will scale and code that will quietly become a production incident once the data volume grows past what anyone tested with.`,`This guide deliberately doesn't go deep into algorithm design or whiteboard-style coding-interview problems — the goal here is recognizing when a data-structure choice matters in real backend code, not mastering algorithmic puzzle-solving.`],related:["Indexing Strategy", "Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
 
 {cat:"CS", title:"OS Basics: Process vs Thread, Stack vs Heap", def:`Underneath all the application-level concurrency covered earlier in this guide (coroutines, thread pools, and so on) sits the operating system's own, more fundamental building blocks.
 
@@ -2208,7 +2208,7 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="440" y="98" text-anchor="middle" fill="var(--ledger)" font-size="8">direct lookup — no scanning needed</text>
 </svg>`,
 ex:`Searching for every transaction where the memo field contains the word "refund" across 50 million records returns in well under a second, because Elasticsearch already has a pre-built inverted index mapping "refund" directly to every matching document — instead of having to check the memo field of all 50 million records one by one, the way a naive full-table text scan would.`,
-trade:[`This design makes Elasticsearch extremely fast for search and read-heavy workloads, but the upfront indexing work at write time means writes are relatively more expensive than in a plain key-value or relational insert — Elasticsearch is optimized for "search often, write less often" access patterns, not for extremely high-frequency single-row updates.`],related:["Elasticsearch: What It Is & Core Components", "Index Types: B-Tree vs Hash vs LSM-Tree"]},
+trade:[`This design makes Elasticsearch extremely fast for search and read-heavy workloads, but the upfront indexing work at write time means writes are relatively more expensive than in a plain key-value or relational insert — Elasticsearch is optimized for "search often, write less often" access patterns, not for extremely high-frequency single-row updates.`],related:["Elasticsearch: What It Is & Core Components", "Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
 
 {cat:"DB", title:"Elasticsearch Indexing Pipeline: Analyzers & Tokenizers", def:`This is the actual process that happens at write time to turn raw text into the fast, searchable inverted index described above. Every piece of text goes through an "analyzer," which is really three steps chained together.
 
@@ -2519,7 +2519,7 @@ diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="420" y="150" text-anchor="middle" fill="var(--text-faint)" font-size="9">O(log n) — a handful of comparisons, not a full scan</text>
 </svg>`,
 ex:`A `+"`transactions`"+` table queried heavily by `+"`account_id`"+` and `+"`created_at`"+` benefits from a composite index on `+"`(account_id, created_at)`"+` — put the equality-filtered column first, the range/sort column second, so the index serves both the filter and the ordering.`,
-trade:[`More indexes speed up reads but slow down every write (each index needs maintenance) — on a high-TPS ledger table, over-indexing can become the actual bottleneck.`,`Composite index column order matters enormously — the same columns in the wrong order can make an index useless for a given query.`,`Periodically audit for unused indexes (via DB usage stats) and drop them; they're pure write-cost with no read benefit.`],related:["Index Types: B-Tree vs Hash vs LSM-Tree", "Query Plans & N+1", "Finding Slow Queries"],priority:"high"},
+trade:[`More indexes speed up reads but slow down every write (each index needs maintenance) — on a high-TPS ledger table, over-indexing can become the actual bottleneck.`,`Composite index column order matters enormously — the same columns in the wrong order can make an index useless for a given query.`,`Periodically audit for unused indexes (via DB usage stats) and drop them; they're pure write-cost with no read benefit.`],related:["Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN", "Query Plans & N+1", "Finding Slow Queries"],priority:"high"},
 
 {cat:"DB", title:"Query Plans & N+1", def:`EXPLAIN/EXPLAIN ANALYZE shows how the database will execute (or executed) a query — whether it uses an index, does a full scan, or picks a bad join order. The N+1 problem is issuing 1 query to fetch a list, then N additional queries (one per item) to fetch related data, instead of one batched query or join.`,
 diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
@@ -2637,7 +2637,7 @@ diagram:`<svg viewBox="0 0 480 190" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="60" y="155" fill="var(--red)" font-size="11" font-weight="600">Look up "user_99" → hashes to bit 2 (=0) → "definitely not there" → skip disk read entirely</text>
 </svg>`,
 ex:`A distributed database storing billions of keys across many on-disk files keeps a small bloom filter in memory for each file. When looking up a specific key, it checks each file's bloom filter first; for the vast majority of files (which definitely don't contain that key), the filter says so instantly, and the database skips reading that file from disk at all — only actually reading from disk for the small number of files where the filter says the key might be present.`,
-trade:[`Bloom filters trade a small, tunable chance of unnecessary work (a false positive leading to a real check that turns up nothing) for a huge reduction in memory usage and lookup time compared to checking the real dataset directly — a very good trade when the real check (like a disk read) is expensive and most lookups are genuinely "not found."`,`You can never remove an item from a standard bloom filter once it's added (doing so could accidentally cause false negatives, which the whole structure promises to never produce) — if you need to support removals, you need a variant designed for it, or you need to periodically rebuild the filter from scratch.`],related:["Index Types: B-Tree vs Hash vs LSM-Tree"]},
+trade:[`Bloom filters trade a small, tunable chance of unnecessary work (a false positive leading to a real check that turns up nothing) for a huge reduction in memory usage and lookup time compared to checking the real dataset directly — a very good trade when the real check (like a disk read) is expensive and most lookups are genuinely "not found."`,`You can never remove an item from a standard bloom filter once it's added (doing so could accidentally cause false negatives, which the whole structure promises to never produce) — if you need to support removals, you need a variant designed for it, or you need to periodically rebuild the filter from scratch.`],related:["Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
 
 {cat:"DB", title:"Database Connection Pooling", def:`Opening a brand-new database connection is genuinely expensive — beyond the TCP/TLS handshakes covered in the Networking section, the database itself typically has to do its own setup work (in Postgres, this historically means forking an entire new process per connection). Doing this for every single query would be far too slow, so applications keep a pool of already-open, ready-to-use database connections and borrow/return them as needed, instead of opening a new one per request.
 
@@ -2670,42 +2670,81 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A fintech company runs 50 instances of their transaction service, each configured with a local pool of 20 database connections — that's 1,000 potential connections, but their database's `+"`max_connections`"+` is set to 200. Under load, instances start failing to get a database connection at all, even though the database's actual CPU and query capacity aren't close to being maxed out. Introducing PgBouncer between the app instances and the database lets all 50 instances share a much smaller pool of real connections, solving the exhaustion problem without needing to raise `+"`max_connections`"+` to a number the database can't actually handle efficiently.`,
 trade:[`This problem gets dramatically worse in serverless/auto-scaling environments (like AWS Lambda), where the number of application instances can spike very quickly and unpredictably — each new instance potentially opening its own fresh set of connections — which is exactly the scenario external poolers are most critical for.`,`A pool that's too small causes requests to queue up waiting for a connection even when the database itself has spare capacity; a pool that's too large risks exhausting the database's connection limit — sizing needs to account for the number of application instances multiplied by their per-instance pool size, not just one instance in isolation.`,`Idle connections sitting in a pool for too long can also go stale or get silently closed by the database or a network device in between — a well-configured pool needs a reasonable idle timeout and a way to detect and discard dead connections rather than handing one out that will fail immediately.`],related:["Connection Pooling & Keep-Alive", "Serverless / FaaS (Function as a Service)"],priority:"high"},
 
-{cat:"DB", title:"Index Types: B-Tree vs Hash vs LSM-Tree", def:`Three different data structures a database can use to find rows quickly, each good at different things.
+{cat:"DB", title:"Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN", def:`Five different data structures a database can use to find rows quickly, each good at different things. The first three show up across most relational and NoSQL databases; the last two are Postgres-specific but the underlying idea (index structured data differently depending on its shape) applies everywhere.
 
 B-Tree — a balanced tree structure, and the default index type in most relational databases. Handles equality lookups, range queries ("between these two dates"), and sorted results all reasonably well. When in doubt, this is the right choice.
 
 Hash index — turns a key into a location using a hash function. Extremely fast, but only for exact-match lookups ("find this exact ID") — it cannot answer a range query or return results in sorted order at all.
 
-LSM-Tree (Log-Structured Merge-Tree) — built for very high write speed. New writes are first buffered in memory, then flushed to disk as sorted files that get merged together in the background over time. This is the structure behind write-heavy databases like Cassandra and RocksDB.`,
-diagram:`<svg viewBox="0 0 480 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
-  <text x="240" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">B-Tree structure (simplified)</text>
-  <rect x="205" y="30" width="70" height="34" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
-  <text x="240" y="52" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">50</text>
+LSM-Tree (Log-Structured Merge-Tree) — built for very high write speed. New writes are first buffered in memory, then flushed to disk as sorted files that get merged together in the background over time. This is the structure behind write-heavy databases like Cassandra and RocksDB.
 
-  <line x1="220" y1="64" x2="120" y2="95" stroke="var(--border)" stroke-width="1.5"/>
-  <line x1="260" y1="64" x2="360" y2="95" stroke="var(--border)" stroke-width="1.5"/>
+GIN (Generalized Inverted Index) — built for columns that hold multiple values inside one row, like a JSONB document, an array, or full-text search tokens. Instead of indexing "this row has this value," it flips the relationship around and indexes "this value shows up in these rows," which is exactly what's needed to answer "find every row where this JSON field contains X."
 
-  <rect x="85" y="97" width="70" height="34" rx="5" fill="var(--blue)" fill-opacity="0.2" stroke="var(--blue)" stroke-width="2"/>
-  <text x="120" y="119" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">20</text>
-  <rect x="325" y="97" width="70" height="34" rx="5" fill="var(--blue)" fill-opacity="0.2" stroke="var(--blue)" stroke-width="2"/>
-  <text x="360" y="119" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">80</text>
+BRIN (Block Range Index) — built for huge tables where the column being filtered on is already roughly sorted on disk, like a timestamp on an append-only table. Instead of indexing every row individually, it stores just the min and max value for each block of rows, making it tiny to store and cheap to maintain, at the cost of being far less precise than a B-Tree.`,
+diagram:`<svg viewBox="0 0 660 350" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="15" y="20" fill="var(--text-faint)" font-size="10.5" font-weight="600">INDEX TYPE</text>
 
-  <line x1="105" y1="131" x2="60" y2="160" stroke="var(--border)" stroke-width="1.5"/>
-  <line x1="135" y1="131" x2="180" y2="160" stroke="var(--border)" stroke-width="1.5"/>
-  <line x1="345" y1="131" x2="300" y2="160" stroke="var(--border)" stroke-width="1.5"/>
-  <line x1="375" y1="131" x2="420" y2="160" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="210" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Equality</text>
+  <text x="300" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Range</text>
+  <text x="390" y="8" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">JSON /</text>
+  <text x="390" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Array</text>
+  <text x="480" y="8" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Huge</text>
+  <text x="480" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Ordered Data</text>
+  <text x="580" y="8" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Fast</text>
+  <text x="580" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Writes</text>
 
-  <rect x="30" y="162" width="60" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="60" y="182" text-anchor="middle" fill="var(--text)" font-size="11">5,10</text>
-  <rect x="150" y="162" width="60" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="180" y="182" text-anchor="middle" fill="var(--text)" font-size="11">25,30</text>
-  <rect x="270" y="162" width="60" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="300" y="182" text-anchor="middle" fill="var(--text)" font-size="11">60,70</text>
-  <rect x="390" y="162" width="60" height="30" rx="4" fill="var(--panel-2)" stroke="var(--border)"/>
-  <text x="420" y="182" text-anchor="middle" fill="var(--text)" font-size="11">90,99</text>
+  <line x1="0" y1="32" x2="660" y2="32" stroke="var(--border)" stroke-width="1.5"/>
+
+  <text x="15" y="58" fill="var(--text)" font-size="12.5" font-weight="600">B-Tree</text>
+  <text x="15" y="104" fill="var(--text)" font-size="12.5" font-weight="600">Hash</text>
+  <text x="15" y="150" fill="var(--text)" font-size="12.5" font-weight="600">LSM-Tree</text>
+  <text x="15" y="196" fill="var(--text)" font-size="12.5" font-weight="600">GIN</text>
+  <text x="15" y="242" fill="var(--text)" font-size="12.5" font-weight="600">BRIN</text>
+
+  <g font-size="15" text-anchor="middle" font-weight="700">
+    <text x="210" y="58" fill="var(--ledger)">✓</text>
+    <text x="300" y="58" fill="var(--ledger)">✓</text>
+    <text x="390" y="58" fill="var(--red)">✗</text>
+    <text x="480" y="58" fill="var(--amber)">~</text>
+    <text x="580" y="58" fill="var(--amber)">~</text>
+
+    <text x="210" y="104" fill="var(--ledger)">✓</text>
+    <text x="300" y="104" fill="var(--red)">✗</text>
+    <text x="390" y="104" fill="var(--red)">✗</text>
+    <text x="480" y="104" fill="var(--red)">✗</text>
+    <text x="580" y="104" fill="var(--amber)">~</text>
+
+    <text x="210" y="150" fill="var(--ledger)">✓</text>
+    <text x="300" y="150" fill="var(--ledger)">✓</text>
+    <text x="390" y="150" fill="var(--red)">✗</text>
+    <text x="480" y="150" fill="var(--red)">✗</text>
+    <text x="580" y="150" fill="var(--ledger)">✓</text>
+
+    <text x="210" y="196" fill="var(--red)">✗</text>
+    <text x="300" y="196" fill="var(--red)">✗</text>
+    <text x="390" y="196" fill="var(--ledger)">✓</text>
+    <text x="480" y="196" fill="var(--red)">✗</text>
+    <text x="580" y="196" fill="var(--red)">✗</text>
+
+    <text x="210" y="242" fill="var(--red)">✗</text>
+    <text x="300" y="242" fill="var(--ledger)">✓</text>
+    <text x="390" y="242" fill="var(--red)">✗</text>
+    <text x="480" y="242" fill="var(--ledger)">✓</text>
+    <text x="580" y="242" fill="var(--ledger)">✓</text>
+  </g>
+
+  <line x1="0" y1="70" x2="660" y2="70" stroke="var(--border)" stroke-width="1"/>
+  <line x1="0" y1="116" x2="660" y2="116" stroke="var(--border)" stroke-width="1"/>
+  <line x1="0" y1="162" x2="660" y2="162" stroke="var(--border)" stroke-width="1"/>
+  <line x1="0" y1="208" x2="660" y2="208" stroke="var(--border)" stroke-width="1"/>
+  <line x1="0" y1="254" x2="660" y2="254" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="330" y="288" text-anchor="middle" fill="var(--ledger)" font-size="12" font-weight="600">✓ = well suited to this access pattern</text>
+  <text x="330" y="308" text-anchor="middle" fill="var(--amber)" font-size="12" font-weight="600">~ = usable, but not the right specialized choice</text>
+  <text x="330" y="328" text-anchor="middle" fill="var(--red)" font-size="12" font-weight="600">✗ = essentially can't do this well</text>
 </svg>`,
-ex:`A B-Tree index on `+"`created_at`"+` efficiently serves "transactions in the last 24 hours" (a range query). A hash index on an exact idempotency-key lookup table serves "does this exact key exist" lookups slightly faster than a B-Tree, but couldn't serve a "keys created between X and Y" query at all. A high-volume event-ingestion store built on an LSM-tree (e.g., Cassandra) sustains far higher write throughput than a B-Tree-based relational table under the same load, at the cost of read amplification (may need to check multiple files) and background compaction overhead.`,
-trade:[`B-Tree is the right general-purpose default — supports the widest range of query patterns and is what you get automatically in Postgres/MySQL unless you specify otherwise.`,`Hash indexes are a narrow optimization (equality-only) that's rarely worth the specialization unless you've profiled a genuine equality-lookup bottleneck — and many databases restrict what operations they even support on a hash index (e.g., historically not crash-safe replication in some engines).`,`LSM-trees trade read performance and operational complexity (compaction tuning) for write throughput — the right choice when your workload is write-heavy and append-like (event logs, time-series) rather than read-heavy or update-heavy.`],related:["Indexing Strategy", "Data Structures & Big-O Complexity for Backend Engineers"],priority:"high"},
+ex:`A B-Tree index on `+"`created_at`"+` efficiently serves "transactions in the last 24 hours" (a range query). A hash index on an exact idempotency-key lookup table serves "does this exact key exist" lookups slightly faster than a B-Tree, but couldn't serve a "keys created between X and Y" query at all. A high-volume event-ingestion store built on an LSM-tree (e.g., Cassandra) sustains far higher write throughput than a B-Tree-based relational table under the same load, at the cost of read amplification (may need to check multiple files) and background compaction overhead. A GIN index on a `+"`metadata jsonb`"+` column lets a fraud-review query find every transaction where the payment processor's payload contains a specific risk flag, something a plain B-Tree can't do on a JSON column at all. A BRIN index on a 500-million-row `+"`ledger_entries`"+` table's `+"`created_at`"+` column takes up a few hundred kilobytes instead of the several gigabytes a B-Tree on that same column would need, because it only remembers the min and max timestamp per block of rows, a huge win on a column that's already naturally ordered by insert time.`,
+trade:[`B-Tree is the right general-purpose default — supports the widest range of query patterns and is what you get automatically in Postgres/MySQL unless you specify otherwise.`,`Hash indexes are a narrow optimization (equality-only) that's rarely worth the specialization unless you've profiled a genuine equality-lookup bottleneck — and many databases restrict what operations they even support on a hash index (e.g., historically not crash-safe replication in some engines).`,`LSM-trees trade read performance and operational complexity (compaction tuning) for write throughput — the right choice when your workload is write-heavy and append-like (event logs, time-series) rather than read-heavy or update-heavy.`,`GIN indexes are powerful for JSON/array/full-text search but expensive to update, since a single write can touch many index entries (one per value inside the document) — a poor fit for columns that change constantly.`,`BRIN indexes are extremely cheap to store and maintain, but only work well when the column is naturally correlated with its physical row order — let the table get reordered or heavily updated out of sequence, and a BRIN index quietly stops helping instead of failing loudly, which makes it a trap if nobody's watching query plans afterward.`],related:["Indexing Strategy", "Data Structures & Big-O Complexity for Backend Engineers"],priority:"high"},
 
 // ---------------- CORE PRINCIPLES ----------------
 {cat:"CP", title:"SOLID Principles", def:`Five guidelines for writing OOP code that stays easy to maintain as it grows. Each letter is its own rule:
