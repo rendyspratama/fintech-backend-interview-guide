@@ -619,6 +619,62 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A stateless authentication approach validates a signed token (like a JWT, covered in the Security section) on every request without needing to remember anything about earlier requests — any server instance can handle any request, which is exactly why load balancing and autoscaling work so cleanly. A stateful alternative that keeps logged-in sessions in each server's local memory would require "sticky sessions" (always routing the same user back to the same instance), which directly limits how freely you can scale, rebalance, or replace instances.`,
 trade:[`Statelessness is what makes horizontal scaling, load balancing, and easy recovery from failure actually simple — this is precisely why so many patterns throughout this guide (external caches instead of local ones, externalized session/config, idempotent APIs) all push in the same direction.`,`Some things are genuinely hard to make fully stateless (a long-lived WebSocket connection, covered in the Networking section, inherently ties a client to a specific server instance for its duration) — the practical goal isn't "eliminate all state everywhere," it's "don't keep state in application memory by default, and be deliberate on the specific occasions where you genuinely need to."`],related:["Serverless / FaaS (Function as a Service)", "Load Balancing Algorithms (L4 vs L7)", "Vertical vs Horizontal Scaling"],priority:"high"},
 
+{cat:"CS", title:"Latency, Throughput & IOPS: The Core Performance Metrics", def:`Three related but easily-confused ways to measure performance. Improving one doesn't automatically improve the others — sometimes it makes another one worse, which is exactly the question interviewers are really asking when they say "how would you improve performance here?"
+
+Latency — how long one single operation takes, from the moment a request is sent to the moment its response comes back. Measured in milliseconds. Improving latency means making one round trip faster: a closer server region, fewer network hops, a warm cache hit instead of a cold disk read, less serialization work.
+
+Throughput — the total amount of work completed per unit of time, across many operations happening together. Measured in requests per second or megabytes per second. Improving throughput means doing more total work per second, usually by running more of it in parallel: more worker threads, bigger batches, more database connections, more service instances.
+
+IOPS (Input/Output Operations Per Second) — how many individual read or write operations a storage device can complete per second, regardless of how much data each operation carries. It's throughput's storage-specific cousin: a disk doing many tiny random writes can be IOPS-bound long before it runs out of raw data throughput, while a disk doing a few huge sequential writes can hit its data-throughput ceiling on a comparatively low IOPS count.
+
+Improving latency is not the same lever as improving throughput, and the two can actively conflict. Batching writes together to raise throughput — grouping 500 writes into one transaction instead of sending them one at a time — usually raises the latency of any single write in that batch, since it now waits to be grouped with the others.
+
+Improving IOPS usually does help latency too, but only for storage-bound work. Moving from spinning disks to SSD/NVMe raises IOPS and shortens how long each operation waits in the device's queue. If the actual bottleneck is the network or the CPU instead, more IOPS buys nothing.
+
+Which metric is actually the one to chase depends on what's waiting.
+
+IOPS is the number to chase when the bottleneck is many small, random reads or writes — a ledger table taking thousands of small per-row updates per second.
+
+Throughput is the number to chase when the bottleneck is total data volume — a nightly settlement file transfer or a bulk export, where bytes per second matters more than any single operation's speed.
+
+Latency is the number to chase when something is waiting synchronously on one specific call to finish — a card-authorization decision at checkout, where nobody is waiting on "the total," just on this one answer.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="90" y="18" text-anchor="middle" fill="var(--blue)" font-size="10.5" font-weight="600">Latency</text>
+  <circle cx="30" cy="70" r="5" fill="var(--blue)"/>
+  <text x="30" y="95" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">Request</text>
+  <line x1="35" y1="70" x2="145" y2="70" stroke="var(--blue)" stroke-width="2"/>
+  <circle cx="150" cy="70" r="5" fill="var(--blue)"/>
+  <text x="150" y="95" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">Response</text>
+  <text x="90" y="55" text-anchor="middle" fill="var(--text)" font-size="9">40ms</text>
+  <text x="90" y="120" text-anchor="middle" fill="var(--text-faint)" font-size="8">time for ONE call</text>
+
+  <text x="280" y="18" text-anchor="middle" fill="var(--ledger)" font-size="10.5" font-weight="600">Throughput</text>
+  <line x1="215" y1="40" x2="335" y2="40" stroke="var(--ledger)" stroke-width="3"/>
+  <line x1="215" y1="52" x2="335" y2="52" stroke="var(--ledger)" stroke-width="3"/>
+  <line x1="215" y1="64" x2="335" y2="64" stroke="var(--ledger)" stroke-width="3"/>
+  <line x1="215" y1="76" x2="335" y2="76" stroke="var(--ledger)" stroke-width="3"/>
+  <line x1="215" y1="88" x2="335" y2="88" stroke="var(--ledger)" stroke-width="3"/>
+  <text x="275" y="120" text-anchor="middle" fill="var(--text)" font-size="9">5,000 req/s</text>
+  <text x="275" y="133" text-anchor="middle" fill="var(--text-faint)" font-size="8">total work, same window</text>
+
+  <text x="465" y="18" text-anchor="middle" fill="var(--amber)" font-size="10.5" font-weight="600">IOPS</text>
+  <line x1="400" y1="70" x2="530" y2="70" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="410" y1="60" x2="410" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="425" y1="60" x2="425" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="440" y1="60" x2="440" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="455" y1="60" x2="455" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="470" y1="60" x2="470" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="485" y1="60" x2="485" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="500" y1="60" x2="500" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <line x1="515" y1="60" x2="515" y2="80" stroke="var(--amber)" stroke-width="2"/>
+  <text x="465" y="120" text-anchor="middle" fill="var(--text)" font-size="9">50,000 IOPS</text>
+  <text x="465" y="133" text-anchor="middle" fill="var(--text-faint)" font-size="8">count of ops, any size</text>
+
+  <text x="280" y="157" text-anchor="middle" fill="var(--text-faint)" font-size="10">Same time window — how long, how much total, how many operations</text>
+</svg>`,
+ex:`A card-authorization endpoint has a 40ms p99 latency — fine, since it's one decision with one customer waiting — but only handles 200 requests/second on a single instance; during a Black-Friday-style spike it needs to scale horizontally to 5,000 requests/second of throughput without regressing that same 40ms latency figure. Meanwhile, the nightly ledger reconciliation job is throughput-bound rather than latency-bound: a batch job reading 40 million rows overnight cares about total records-per-second, not how fast any single row read completes. Underneath both, the ledger's database is provisioned on NVMe storage specifically because tens of thousands of small, individual debit/credit row writes per second would exhaust a spinning-disk's IOPS budget long before it ran out of raw data throughput.`,
+trade:[`Optimizing for throughput (batching, queuing, more parallelism) commonly increases tail latency for individual requests — a fix for one metric that actively regresses the other, so they need to be tracked and reported as separate numbers, not folded into one "performance" score.`,`Provisioned IOPS on cloud storage (e.g. AWS io2 volumes) is billed independently of raw storage size, so chasing IOPS to fix a latency problem that's actually caused by an unindexed query just adds cost without touching the real bottleneck.`,`A system tuned purely for maximum aggregate throughput can still produce a bad p99 latency experience for individual users even while the dashboard's average numbers look great — aggregate metrics can hide exactly the pain an individual customer feels.`],related:["Vertical vs Horizontal Scaling", "Capacity Planning & Autoscaling", "Finding Slow Queries"],priority:"high"},
+
 // ---------------- NETWORKING FUNDAMENTALS ----------------
 {cat:"NW", title:"The OSI 7 Layers", def:`A conceptual model that breaks down everything involved in network communication into 7 stacked layers, from the physical wire up to the actual application. Each layer only talks to the layers directly above and below it, which is what lets you swap out one layer (like switching from WiFi to Ethernet) without the layers above needing to know or care.
 
@@ -4256,6 +4312,44 @@ diagram:`<svg viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`Adding a new optional field to the `+"`TransactionCompleted`"+` event schema is safe and old consumers simply ignore the new field; removing or renaming a field that a downstream reconciliation consumer depends on would silently break that consumer's processing — a schema registry with compatibility checks catches this at publish/deploy time instead of at 2am in production.`,
 trade:[`Adds infrastructure (the registry) and process overhead (schema review before publishing), but prevents an entire class of silent, hard-to-diagnose downstream breakage — especially valuable when producer and consumer teams are different and don't deploy in lockstep.`],related:["API Versioning & Backward Compatibility", "REST vs gRPC vs GraphQL"]},
+
+{cat:"MA", title:"Large File Upload Strategies (Chunked, Multipart & Resumable Uploads)", def:`Uploading a large file in a single HTTP request is fragile — one dropped connection partway through means starting the whole upload over, and very large files can hit request size or timeout limits before they even finish.
+
+Chunked upload — the client splits the file into fixed-size pieces and sends each one as a separate request; the server reassembles them in order once every chunk has arrived. A failed chunk only needs to be resent, not the entire file.
+
+Multipart upload — the pattern most cloud object stores use, like S3's multipart upload API. Each chunk ("part") is uploaded independently, potentially in parallel and out of order, and the storage service stitches every part together once all of them are confirmed.
+
+Resumable upload — the client and server track exactly how much of the file has already been received, so if a connection drops, the client can ask "where did we leave off?" and continue from that point instead of restarting from byte zero.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="52" width="90" height="38" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="65" y="66" text-anchor="middle" fill="var(--text)" font-size="9">File</text>
+  <text x="65" y="80" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">500 MB</text>
+
+  <line x1="110" y1="65" x2="185" y2="34" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="110" y1="71" x2="185" y2="71" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="110" y1="77" x2="185" y2="111" stroke="var(--border)" stroke-width="1.5"/>
+
+  <rect x="185" y="20" width="95" height="28" rx="5" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)"/>
+  <text x="232" y="38" text-anchor="middle" fill="var(--ledger)" font-size="8.5">Part 1 — OK</text>
+
+  <rect x="185" y="57" width="95" height="28" rx="5" fill="var(--red)" fill-opacity="0.12" stroke="var(--red)"/>
+  <text x="232" y="75" text-anchor="middle" fill="var(--red)" font-size="8.5">Part 2 — retried</text>
+
+  <rect x="185" y="97" width="95" height="28" rx="5" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)"/>
+  <text x="232" y="115" text-anchor="middle" fill="var(--ledger)" font-size="8.5">Part 3 — OK</text>
+
+  <line x1="280" y1="34" x2="360" y2="65" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="280" y1="71" x2="360" y2="71" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="280" y1="111" x2="360" y2="77" stroke="var(--border)" stroke-width="1.5"/>
+
+  <rect x="360" y="52" width="130" height="38" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="425" y="66" text-anchor="middle" fill="var(--text)" font-size="9">Reassembled</text>
+  <text x="425" y="80" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">once all parts confirmed</text>
+
+  <text x="280" y="145" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Only the failed part is resent — not the whole file</text>
+</svg>`,
+ex:`A mobile banking app asks a customer to upload a scanned passport photo for KYC (Know Your Customer) identity verification over a spotty cellular connection. Using resumable multipart upload, a dropped connection on part 3 of 5 only requires re-sending that one part — not the whole multi-megabyte photo — which is the difference between the customer finishing the KYC flow and abandoning it.`,
+trade:[`Chunked/multipart uploads add real server-side complexity: tracking partial-upload state per file, handling parts that arrive out of order or get duplicated, and cleaning up abandoned partial uploads that never complete — or storage quietly fills up with orphaned parts.`,`Chunk size is a genuine trade-off: smaller chunks mean less data lost on any single retry but more requests and more overhead; larger chunks mean fewer requests but more data to resend when one of them fails.`,`Resumability requires the client to persist upload progress across app restarts and network drops, which is meaningfully more engineering than a single-shot upload — not worth the cost for small files where a full retry is already cheap.`],related:["Idempotency & Exactly-Once Delivery", "Producer-Consumer & Backpressure", "Retry with Backoff & Jitter"]},
 
 // ---------------- SECURITY ----------------
 {cat:"SC", title:"Symmetric vs Asymmetric Encryption, and Hashing vs Encryption", def:`Three basic crypto building blocks that are easy to mix up, but behave completely differently — and using the wrong one for the job is a common, serious mistake.
