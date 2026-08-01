@@ -2802,6 +2802,62 @@ diagram:`<svg viewBox="0 0 660 350" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A B-Tree index on `+"`created_at`"+` efficiently serves "transactions in the last 24 hours" (a range query). A hash index on an exact idempotency-key lookup table serves "does this exact key exist" lookups slightly faster than a B-Tree, but couldn't serve a "keys created between X and Y" query at all. A high-volume event-ingestion store built on an LSM-tree (e.g., Cassandra) sustains far higher write throughput than a B-Tree-based relational table under the same load, at the cost of read amplification (may need to check multiple files) and background compaction overhead. A GIN index on a `+"`metadata jsonb`"+` column lets a fraud-review query find every transaction where the payment processor's payload contains a specific risk flag, something a plain B-Tree can't do on a JSON column at all. A BRIN index on a 500-million-row `+"`ledger_entries`"+` table's `+"`created_at`"+` column takes up a few hundred kilobytes instead of the several gigabytes a B-Tree on that same column would need, because it only remembers the min and max timestamp per block of rows, a huge win on a column that's already naturally ordered by insert time.`,
 trade:[`B-Tree is the right general-purpose default — supports the widest range of query patterns and is what you get automatically in Postgres/MySQL unless you specify otherwise.`,`Hash indexes are a narrow optimization (equality-only) that's rarely worth the specialization unless you've profiled a genuine equality-lookup bottleneck — and many databases restrict what operations they even support on a hash index (e.g., historically not crash-safe replication in some engines).`,`LSM-trees trade read performance and operational complexity (compaction tuning) for write throughput — the right choice when your workload is write-heavy and append-like (event logs, time-series) rather than read-heavy or update-heavy.`,`GIN indexes are powerful for JSON/array/full-text search but expensive to update, since a single write can touch many index entries (one per value inside the document) — a poor fit for columns that change constantly.`,`BRIN indexes are extremely cheap to store and maintain, but only work well when the column is naturally correlated with its physical row order — let the table get reordered or heavily updated out of sequence, and a BRIN index quietly stops helping instead of failing loudly, which makes it a trap if nobody's watching query plans afterward.`],related:["Indexing Strategy", "Data Structures & Big-O Complexity for Backend Engineers"],priority:"high"},
 
+{cat:"DB", title:"RAG & Vector Databases", def:`RAG (Retrieval-Augmented Generation) — instead of relying only on what a language model learned during training (which is fixed at training time and can be outdated, generic, or simply missing your company's private data), the system retrieves relevant documents from your own data at query time and includes them in the prompt, so the model's answer is grounded in current, specific information instead of whatever it can recall.
+
+A vector database stores embeddings — numerical representations of text (or images) that capture meaning rather than exact wording — instead of the exact-keyword matching a traditional database index does. This lets a query find documents that are semantically related even when they don't share any of the same words.
+
+A typical RAG pipeline has three steps:
+
+Embed & index — documents are broken into chunks, each chunk is converted into an embedding by an embedding model, and stored in the vector database ahead of time.
+
+Retrieve — at query time, the user's question is embedded the same way, and the vector database returns the stored chunks whose embeddings are closest to it (most semantically similar).
+
+Augment & generate — those retrieved chunks are inserted into the prompt alongside the original question, and the language model generates its answer using that grounded context instead of relying solely on its training data.`,
+diagram:`<svg viewBox="0 0 560 220" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="30" width="140" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="90" y="48" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Source docs</text>
+  <text x="90" y="63" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">policies, statements...</text>
+
+  <line x1="160" y1="52" x2="215" y2="52" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#rag-1)"/>
+  <text x="188" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">embed</text>
+
+  <rect x="220" y="30" width="130" height="45" rx="6" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="285" y="48" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Vector database</text>
+  <text x="285" y="63" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">stores embeddings</text>
+
+  <rect x="20" y="120" width="140" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="90" y="138" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">User question</text>
+  <text x="90" y="153" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">embedded the same way</text>
+
+  <line x1="90" y1="120" x2="90" y2="90" stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="3 2"/>
+  <line x1="160" y1="142" x2="220" y2="65" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#rag-2)"/>
+  <text x="200" y="105" text-anchor="middle" fill="var(--ledger)" font-size="7.5">similarity search</text>
+
+  <line x1="285" y1="75" x2="285" y2="120" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#rag-3)"/>
+  <text x="322" y="100" text-anchor="middle" fill="var(--ledger)" font-size="7.5">retrieved chunks</text>
+
+  <rect x="220" y="120" width="130" height="45" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="285" y="138" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Augmented prompt</text>
+  <text x="285" y="153" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">question + retrieved context</text>
+
+  <line x1="350" y1="142" x2="410" y2="142" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#rag-4)"/>
+
+  <rect x="415" y="120" width="120" height="45" rx="6" fill="var(--amber)" fill-opacity="0.15" stroke="var(--amber)" stroke-width="2"/>
+  <text x="475" y="138" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">LLM</text>
+  <text x="475" y="153" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">grounded answer</text>
+
+  <text x="280" y="195" text-anchor="middle" fill="var(--text-dim)" font-size="10">Retrieval happens once per query — indexing happens ahead of time</text>
+
+  <defs>
+    <marker id="rag-1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+    <marker id="rag-2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="rag-3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="rag-4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
+  </defs>
+</svg>`,
+ex:`An internal support tool answering "what's our refund policy for a disputed subscription charge filed after 90 days" retrieves the actual current policy document via vector similarity search and includes it directly in the prompt — instead of letting the model answer purely from training data, where it might confidently state an outdated or entirely made-up policy.`,
+trade:[`Answer quality is bounded by retrieval quality — bad chunking (splitting a document in a way that separates a rule from its exception), a stale index, or a poor embedding model produces a confidently wrong answer that looks just as authoritative as a correct one.`,`The vector database and its indexing pipeline are another piece of infrastructure that must stay in sync with the source data — a policy document updated in the source system but not yet re-embedded means the model is still grounding its answer in the old version.`,`Embedding and storing large document sets has its own real cost (compute for embedding generation, storage and query cost for the vector database), which scales with data volume in a way that's easy to underestimate at first.`],related:["LLM API Integration Patterns", "Elasticsearch: What It Is & Core Components", "Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
+
 // ---------------- CORE PRINCIPLES ----------------
 {cat:"CP", title:"SOLID Principles", def:`Five guidelines for writing OOP code that stays easy to maintain as it grows. Each letter is its own rule:
 
@@ -3373,6 +3429,53 @@ if err != nil {
     return err
 }`,
 related:["Circuit Breaker", "Retry with Backoff & Jitter", "Cascading Failures & Metastability", "Bulkhead Pattern"],priority:"high"},
+
+{cat:"RS", title:"OpenTelemetry (OTel)", def:`OTel (OpenTelemetry) — a vendor-neutral, open-source standard for instrumenting code to produce metrics, logs, and traces (the same three pillars covered in the Observability topic), so instrumentation isn't tied to any one specific monitoring vendor's proprietary SDK.
+
+Instrumentation vs. backend — OTel only defines how telemetry data is generated and collected, not where it ends up. An OTel Collector receives that data from instrumented services and exports it to whichever backend you actually use for storage and dashboards (Prometheus, Jaeger, Grafana, or a commercial vendor).
+
+Because the instrumentation code just talks to the OTel API, swapping the backend later — or running more than one at once, like sending the same data to two vendors during a migration — is a configuration change, not a rewrite of instrumentation scattered across every service.`,
+diagram:`<svg viewBox="0 0 560 210" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="70" width="130" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="85" y="92" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Payment Service</text>
+  <text x="85" y="107" text-anchor="middle" fill="var(--text-faint)" font-size="8">instrumented w/ OTel SDK</text>
+
+  <rect x="20" y="140" width="130" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="85" y="162" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Ledger Service</text>
+  <text x="85" y="177" text-anchor="middle" fill="var(--text-faint)" font-size="8">instrumented w/ OTel SDK</text>
+
+  <line x1="150" y1="95" x2="215" y2="118" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#ot-1)"/>
+  <line x1="150" y1="165" x2="215" y2="140" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#ot-2)"/>
+
+  <rect x="220" y="100" width="120" height="55" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="280" y="123" text-anchor="middle" fill="var(--text)" font-size="10.5" font-weight="700">OTel Collector</text>
+  <text x="280" y="140" text-anchor="middle" fill="var(--text-faint)" font-size="8">vendor-neutral pipeline</text>
+
+  <line x1="340" y1="115" x2="410" y2="65" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#ot-3)"/>
+  <line x1="340" y1="128" x2="410" y2="128" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#ot-4)"/>
+  <line x1="340" y1="145" x2="410" y2="190" stroke="var(--violet)" stroke-width="1.5" marker-end="url(#ot-5)"/>
+
+  <rect x="415" y="40" width="120" height="40" rx="5" fill="var(--panel-2)" stroke="var(--blue)" stroke-width="1.5"/>
+  <text x="475" y="64" text-anchor="middle" fill="var(--text)" font-size="9.5">Prometheus</text>
+
+  <rect x="415" y="108" width="120" height="40" rx="5" fill="var(--panel-2)" stroke="var(--amber)" stroke-width="1.5"/>
+  <text x="475" y="132" text-anchor="middle" fill="var(--text)" font-size="9.5">Jaeger</text>
+
+  <rect x="415" y="170" width="120" height="40" rx="5" fill="var(--panel-2)" stroke="var(--violet)" stroke-width="1.5"/>
+  <text x="475" y="194" text-anchor="middle" fill="var(--text)" font-size="9.5">Commercial vendor</text>
+
+  <text x="280" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Same instrumentation, swappable backend</text>
+
+  <defs>
+    <marker id="ot-1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+    <marker id="ot-2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+    <marker id="ot-3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--blue)"/></marker>
+    <marker id="ot-4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
+    <marker id="ot-5" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--violet)"/></marker>
+  </defs>
+</svg>`,
+ex:`A team migrating from a paid APM vendor to a self-hosted stack doesn't have to touch a single line of tracing code in any of their 40 services — they only change the OTel Collector's export configuration to point at the new backend, because every service was already instrumented against the vendor-neutral OTel API rather than that vendor's specific SDK.`,
+trade:[`Running and maintaining the Collector is another piece of infrastructure to operate, monitor, and scale — it becomes a new potential bottleneck or single point of telemetry loss if not deployed redundantly.`,`The OTel specification and its language SDKs are still evolving faster than some more mature, single-vendor tools, so breaking changes between versions are more common than with an established proprietary agent.`,`Auto-instrumentation gets you basic coverage quickly, but meaningful traces — the ones that actually help debug a specific fintech flow, like a multi-step payment — still require deliberate, manual span creation at the right points in the code.`],related:["Observability: Metrics, Logs, Traces", "Distributed Tracing for Debugging"]},
 
 // ---------------- DESIGN PATTERNS ----------------
 {cat:"PT", title:"Outbox Pattern", def:`To reliably publish an event whenever you write to your database (avoiding the "dual write" problem where the DB write succeeds but the message publish fails, or vice versa), write the event to an "outbox" table in the *same local transaction* as the business data change, then a separate relay process (or CDC tool like Debezium) reads the outbox and publishes to the message broker.`,
@@ -4101,7 +4204,9 @@ Kafka — a distributed log built for very high throughput. Messages stay around
 
 RabbitMQ — a traditional message broker with flexible routing rules. Good for complex routing logic and lower-latency point-to-point messaging, though it doesn't naturally support replay the way Kafka does.
 
-SQS — a fully-managed, simple queue service. Easiest of the three to operate (nothing to maintain yourself), and a great default choice when you just need straightforward decoupling without replay or complicated routing needs.`,
+SQS — a fully-managed, simple queue service. Easiest of the three to operate (nothing to maintain yourself), and a great default choice when you just need straightforward decoupling without replay or complicated routing needs.
+
+(Apache Pulsar is a newer, less widely-adopted alternative that combines Kafka-like log replay with more flexible built-in multi-tenancy and geo-replication — worth knowing about if you see it named in a job description or an existing system.)`,
 diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <rect x="20" y="30" width="160" height="90" rx="6" fill="var(--ledger)" fill-opacity="0.12" stroke="var(--ledger)" stroke-width="2"/>
   <text x="100" y="52" text-anchor="middle" fill="var(--ledger)" font-size="10.5" font-weight="600">Kafka</text>
@@ -4255,6 +4360,50 @@ diagram:`<svg viewBox="0 0 480 170" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A transaction history API paginating through millions of records for a high-volume merchant performs consistently fast with cursor-based pagination even on page 500, because each request just uses an index to jump straight to "transactions after this ID" — whereas offset-based pagination asking for "page 500" would require the database to scan and discard 9,980 earlier rows first, getting slower the deeper the merchant pages back into their history.`,
 trade:[`Cursor-based pagination is the better choice for large, frequently-changing datasets and is what most serious APIs use for anything at scale — but it doesn't support jumping directly to an arbitrary page number ("show me page 47"), since a cursor only knows how to move relative to a specific position, not an absolute page count.`,`Offset-based pagination remains fine for smaller, relatively static datasets where "jump to page N" is a genuinely useful feature and the performance/consistency downsides don't matter much at that scale.`],related:["Indexing Strategy"]},
+
+{cat:"MA", title:"LLM API Integration Patterns", def:`LLM (Large Language Model) APIs — like most third-party AI model providers — are typically integrated as an external HTTP API call rather than a model run in-house, so the usual API-integration concerns covered elsewhere in this guide apply, plus a few that are specific to this kind of API.
+
+Streaming — responses are generated token by token and often streamed back incrementally rather than returned all at once, since a full response can take many seconds and streaming lets the caller start showing partial output immediately.
+
+Unpredictable latency and cost — response time and token usage both vary per request in a way a typical internal API call doesn't, which makes fixed timeouts and cost budgets harder to set correctly, and usage-based pricing means uncontrolled prompt/response length becomes a direct cost problem, not just a performance one.
+
+Non-determinism — the same input can produce a different output on two separate calls, which complicates both testing (a test can't assert on exact output the way it would for a deterministic function) and caching (repeated identical queries are still worth caching, but slightly-different-but-equivalent queries won't hit that cache).
+
+Prompt injection — if untrusted content (user input, a fetched web page, a document) ends up inside the prompt, it can contain text crafted to override the original instructions. This is especially dangerous when the model's output can trigger a real action, since a successful injection could redirect that action.`,
+diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="70" width="100" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="70" y="99" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Client</text>
+
+  <line x1="120" y1="95" x2="180" y2="95" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#llm-1)"/>
+
+  <rect x="185" y="70" width="120" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="245" y="92" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Backend</text>
+  <text x="245" y="107" text-anchor="middle" fill="var(--text-faint)" font-size="8">builds prompt</text>
+
+  <line x1="305" y1="85" x2="370" y2="85" stroke="var(--blue)" stroke-width="1.5" marker-end="url(#llm-2)"/>
+  <text x="338" y="75" text-anchor="middle" fill="var(--blue)" font-size="8.5">prompt</text>
+
+  <line x1="370" y1="105" x2="305" y2="105" stroke="var(--ledger)" stroke-width="1.5" marker-end="url(#llm-3)"/>
+  <text x="338" y="120" text-anchor="middle" fill="var(--ledger)" font-size="8.5">streamed tokens</text>
+
+  <rect x="375" y="65" width="120" height="60" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="435" y="92" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">LLM API</text>
+  <text x="435" y="107" text-anchor="middle" fill="var(--text-faint)" font-size="8">external, metered</text>
+
+  <line x1="245" y1="120" x2="245" y2="155" stroke="var(--amber)" stroke-width="2" marker-end="url(#llm-4)"/>
+
+  <rect x="150" y="155" width="190" height="30" rx="5" fill="var(--amber)" fill-opacity="0.15" stroke="var(--amber)" stroke-width="1.5"/>
+  <text x="245" y="175" text-anchor="middle" fill="var(--text)" font-size="9">validate/scope before any real action</text>
+
+  <defs>
+    <marker id="llm-1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+    <marker id="llm-2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--blue)"/></marker>
+    <marker id="llm-3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="llm-4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
+  </defs>
+</svg>`,
+ex:`A customer-support backend calls an LLM API to draft a response about a disputed charge. The model's suggested action ("issue a refund of $42") is never executed directly — it's passed through a strictly scoped tool-call schema that only allows requesting a refund within a pre-approved range, and anything outside that range routes to a human for approval, so a successful prompt injection in the customer's message can't move money on its own.`,
+trade:[`Unpredictable latency and per-call cost make it much harder to give a hard SLA than for a typical internal service call — usage spikes translate directly into a variable bill, not just variable performance.`,`Non-determinism complicates testing: you can't assert on an exact output the way you would for a pure function, so tests typically have to check for looser properties (does the response contain a required field, does it avoid a banned phrase) instead.`,`Any action the model's output can trigger needs its own independent validation layer — trusting model output directly to decide something consequential (like a refund amount) turns a prompt injection into a real financial exposure, not just a bad chatbot reply.`],related:["Rate Limiting Algorithms", "Circuit Breaker", "Idempotency & Exactly-Once Delivery", "RAG & Vector Databases"]},
 
 {cat:"MA", title:"Webhooks: Delivery, Retries & Signature Verification", def:`A webhook is a way for one system to notify another about an event by making an HTTP POST request to a URL the receiver registered in advance — instead of the receiver having to constantly poll "did anything happen yet?", the sender pushes the update the moment it happens.
 
@@ -4689,6 +4838,133 @@ diagram:`<svg viewBox="0 0 600 140" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A banking web app sets its session cookie with HttpOnly (so an XSS bug elsewhere on the page can't steal the token via document.cookie), Secure (so it's never sent over an accidental plain-HTTP connection), and SameSite=Strict (so a malicious site can't ride the user's session into a state-changing request). It also enforces a 30-minute idle timeout and forces re-authentication for sensitive actions, like changing a linked bank account, even if the session itself hasn't technically expired yet.`,
 trade:[`SameSite=Strict is the most protective setting but breaks legitimate cross-site flows, like a user clicking a link from an email that should land them already logged in. SameSite=Lax is a common middle ground that still blocks the CSRF-relevant cases, state-changing POST requests, while allowing normal top-level navigation to work.`,`Rotating session tokens on every privilege change adds real engineering surface — every login flow, password reset, and permission-upgrade path needs to remember to do it, and it's exactly the kind of step that's easy to forget on a secondary, less-tested auth path like an admin impersonation feature.`,`Short session lifetimes are more secure but push more friction onto legitimate users, who now have to re-authenticate more often. The right balance depends on how sensitive the actions available in that session actually are, not one fixed number that fits every application equally.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "CORS (Cross-Origin Resource Sharing)", "AuthN vs AuthZ (OAuth2 / OIDC / JWT)"],priority:"high"},
+
+{cat:"SC", title:"Passkeys & Passwordless Authentication", def:`A passkey replaces a password with a public/private key pair generated on the user's device. The private key never leaves the device (it's protected by the device's secure hardware); only the public key is ever sent to and stored by the server.
+
+Built on WebAuthn (Web Authentication) and FIDO2 (Fast IDentity Online 2) — open standards that most browsers, phone operating systems, and password managers now support.
+
+Logging in — the server sends a random challenge, the device signs it with the private key after the user unlocks it (fingerprint, face, or device PIN), and the server verifies the signature with the public key it already has on file. Nothing secret ever crosses the network.
+
+Phishing-resistant by design — the signature is cryptographically bound to the exact origin (domain) that requested it, so a passkey created for the real bank's login page simply won't produce a valid signature on a convincing look-alike phishing domain, even if the user is fooled into visiting it.`,
+diagram:`<svg viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="80" y="30" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="600">Device</text>
+  <text x="80" y="46" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">(holds private key)</text>
+  <line x1="80" y1="58" x2="80" y2="240" stroke="var(--border)" stroke-width="2"/>
+
+  <text x="400" y="30" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="600">Server</text>
+  <text x="400" y="46" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">(holds public key)</text>
+  <line x1="400" y1="58" x2="400" y2="240" stroke="var(--border)" stroke-width="2"/>
+
+  <line x1="395" y1="90" x2="85" y2="90" stroke="var(--blue)" stroke-width="2" marker-end="url(#pk-b)"/>
+  <text x="240" y="80" text-anchor="middle" fill="var(--blue)" font-size="11.5" font-weight="600">1. ← random login challenge</text>
+
+  <line x1="80" y1="145" x2="395" y2="145" stroke="var(--ledger)" stroke-width="2" marker-end="url(#pk-g)"/>
+  <text x="240" y="125" text-anchor="middle" fill="var(--ledger)" font-size="11.5" font-weight="600">2. challenge signed with private key →</text>
+  <text x="240" y="140" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">(after fingerprint / face / device PIN unlock)</text>
+
+  <line x1="395" y1="195" x2="85" y2="195" stroke="var(--amber)" stroke-width="2" marker-end="url(#pk-a)"/>
+  <text x="240" y="185" text-anchor="middle" fill="var(--amber)" font-size="11.5" font-weight="600">3. ← signature verified, access granted</text>
+
+  <text x="240" y="225" text-anchor="middle" fill="var(--text-dim)" font-size="10.5">The private key never leaves the device —</text>
+  <text x="240" y="240" text-anchor="middle" fill="var(--text-dim)" font-size="10.5">nothing secret ever crosses the network</text>
+
+  <defs>
+    <marker id="pk-b" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--blue)"/></marker>
+    <marker id="pk-g" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--ledger)"/></marker>
+    <marker id="pk-a" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--amber)"/></marker>
+  </defs>
+</svg>`,
+ex:`A mobile banking app lets a customer log in by unlocking their phone with Face ID instead of typing a password. The phone signs a challenge from the bank's server with a private key that was generated on that specific device during setup and never leaves it — so even if the bank's login page is compromised in a data breach, there's no password hash sitting in a database for an attacker to steal or crack.`,
+trade:[`Recovery is genuinely harder than "email me a password reset link" — if a customer loses every device with the passkey and never set up a backup method, getting back into a regulated financial account without falling back to a weaker verification method is a real, unsolved UX problem for the industry.`,`Passkeys synced across a user's devices via a cloud account (like iCloud Keychain or a password manager) are convenient but shift some of the trust to that cloud account's own security — a compromised cloud account can, in some implementations, let an attacker use a synced passkey from a new device.`,`Enterprise or regulated environments sometimes need device-bound (non-syncable) passkeys for stronger assurance, which trades away the exact cross-device convenience that makes passkeys appealing to end users in the first place.`],related:["AuthN vs AuthZ (OAuth2 / OIDC / JWT)", "Password Storage & Hashing", "Session & Cookie Security"]},
+
+{cat:"SC", title:"Zero Trust Architecture", def:`A security model based on "never trust, always verify" — no request is automatically trusted just because it comes from inside the corporate network or from a previously-trusted service. Every request is authenticated and authorized on its own merits, every time.
+
+This replaces the older "castle-and-moat" model, which spent most of its effort on a hard perimeter (the firewall) and then trusted almost everything that made it past that perimeter — a model that fails badly once an attacker, or a single compromised laptop, gets inside, since there's little standing in their way after that.
+
+In practice, zero trust means checking several things on every request, not just once at login:
+
+Identity — who is making this request (a verified user or a verified service), not just where the traffic is coming from.
+
+Device posture — whether the device or service making the request is itself in a trusted state (patched, not compromised), not just whether it's plugged into the office network.
+
+Least privilege — grant only the specific access this request actually needs, scoped as narrowly as possible, not broad standing access.
+
+Continuous verification — short-lived credentials and repeated checks, so trust granted five minutes ago doesn't silently keep applying forever.`,
+diagram:`<svg viewBox="0 0 560 210" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="130" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Perimeter model ("castle &amp; moat")</text>
+  <rect x="30" y="30" width="200" height="130" rx="8" fill="none" stroke="var(--border)" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="130" y="45" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">firewall perimeter</text>
+
+  <rect x="50" y="60" width="60" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="80" y="81" text-anchor="middle" fill="var(--text)" font-size="8.5">Service A</text>
+
+  <rect x="150" y="60" width="65" height="34" rx="5" fill="var(--red)" fill-opacity="0.25" stroke="var(--red)" stroke-width="2"/>
+  <text x="182" y="81" text-anchor="middle" fill="var(--red)" font-size="8" font-weight="600">Compromised</text>
+
+  <rect x="100" y="112" width="65" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="132" y="133" text-anchor="middle" fill="var(--text)" font-size="8.5">Ledger DB</text>
+
+  <line x1="110" y1="77" x2="150" y2="77" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="182" y1="94" x2="145" y2="112" stroke="var(--red)" stroke-width="2"/>
+
+  <text x="130" y="185" text-anchor="middle" fill="var(--red)" font-size="8.5">once inside, trusted by default — nothing else is checked</text>
+
+  <text x="430" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Zero trust</text>
+
+  <rect x="350" y="60" width="60" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="380" y="81" text-anchor="middle" fill="var(--text)" font-size="8.5">Service A</text>
+
+  <rect x="450" y="60" width="60" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="480" y="81" text-anchor="middle" fill="var(--text)" font-size="8.5">Service B</text>
+
+  <rect x="400" y="112" width="60" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)"/>
+  <text x="430" y="133" text-anchor="middle" fill="var(--text)" font-size="8.5">Ledger DB</text>
+
+  <line x1="410" y1="77" x2="450" y2="77" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="430" y="70" text-anchor="middle" fill="var(--ledger)" font-size="7">verified ✓</text>
+
+  <line x1="380" y1="94" x2="420" y2="112" stroke="var(--ledger)" stroke-width="2"/>
+  <line x1="480" y1="94" x2="445" y2="112" stroke="var(--ledger)" stroke-width="2"/>
+
+  <text x="430" y="185" text-anchor="middle" fill="var(--ledger)" font-size="8.5">every request checked — identity, device, and scope</text>
+</svg>`,
+ex:`An internal admin dashboard for reversing incorrect fraud holds requires re-verifying the engineer's identity and checking that their device isn't flagged as non-compliant on every request — even when the request originates from inside the corporate VPN — because zero trust treats network location as no signal of trustworthiness at all.`,
+trade:[`Adds real latency and infrastructure to every single request (identity check, device posture check, policy evaluation) — a meaningful cost when multiplied across a high-throughput payments path, not just an occasional admin action.`,`Migrating a legacy system built around perimeter trust to zero trust is a significant, often multi-year undertaking — every service-to-service call that silently assumed "if it's on our network, it's fine" needs to be found and given explicit verification.`,`Requires mature supporting infrastructure (short-lived credential issuance, device attestation, centralized policy) — attempting zero trust without that infrastructure in place just adds friction without the actual security benefit.`],related:["mTLS & Service-to-Service Auth", "AuthN vs AuthZ (OAuth2 / OIDC / JWT)", "Secrets Management"]},
+
+{cat:"SC", title:"OWASP Top 10", def:`OWASP (Open Web Application Security Project) — a nonprofit that publishes the OWASP Top 10, a regularly updated, ranked list of the most critical web application security risks. It's become the de-facto baseline that security reviews, audits, and compliance checklists measure an application against.
+
+A few of the categories not already covered elsewhere in this guide:
+
+Broken Access Control — the application checks *that* a user is logged in, but fails to check *whether this specific user* is allowed to access *this specific resource*. Classic example: changing an ID in a URL or API call and getting back someone else's data.
+
+Security Misconfiguration — default credentials left in place, verbose error messages that leak stack traces to attackers, unnecessary features or ports left enabled, or cloud storage left publicly accessible by mistake.
+
+Vulnerable & Outdated Components — using a library or framework with a known, published vulnerability, often because dependency versions were never tracked or updated after initial development.
+
+Insecure Design — security flaws baked into the architecture itself, like a guessable password-reset flow, that no amount of careful coding can fix later, because the flaw is in the design, not a specific line of code.
+
+(SQL Injection, XSS, and CSRF — also on the list — are covered in depth in their own topic elsewhere in this guide.)`,
+diagram:`<svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="240" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">OWASP Top 10 — a few categories</text>
+
+  <rect x="40" y="35" width="400" height="30" rx="5" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="1.5"/>
+  <text x="55" y="55" fill="var(--text)" font-size="10">Broken Access Control</text>
+  <text x="425" y="55" text-anchor="end" fill="var(--red)" font-size="9">#1 most reported</text>
+
+  <rect x="40" y="72" width="400" height="30" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="55" y="92" fill="var(--text)" font-size="10">Security Misconfiguration</text>
+
+  <rect x="40" y="109" width="400" height="30" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="55" y="129" fill="var(--text)" font-size="10">Vulnerable &amp; Outdated Components</text>
+
+  <rect x="40" y="146" width="400" height="30" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="55" y="166" fill="var(--text)" font-size="10">Insecure Design</text>
+
+  <rect x="40" y="183" width="400" height="30" rx="5" fill="var(--amber)" fill-opacity="0.12" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="55" y="203" fill="var(--text-dim)" font-size="9">SQL Injection / XSS / CSRF — covered in their own topic →</text>
+</svg>`,
+ex:`A pre-launch security review for a new bill-pay feature runs through the OWASP Top 10 checklist and catches a broken access control bug: the "view scheduled payment" endpoint only checked that the request had a valid session token, not that the payment ID in the URL actually belonged to that logged-in user — meaning any customer could view, and in a worse version cancel, another customer's scheduled payments just by guessing sequential IDs.`,
+trade:[`A checklist creates a useful minimum bar, but passing it isn't the same as being secure — it says nothing about business-logic-specific flaws unique to your domain, like a race condition in a balance-transfer endpoint, which need their own threat modeling.`,`The list itself is revised every few years as attack patterns shift, so training, tooling, and static-analysis rules built around one version can quietly go stale and miss newer, now-more-common risk categories.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "Input Validation & Audit Trail (Non-Repudiation)"]},
 
 // ---------------- MULTI-REGION / LB / DR ----------------
 {cat:"MR", title:"Load Balancing Algorithms (L4 vs L7)", def:`L4 (transport layer) — balances traffic based only on IP address and port, without understanding what's actually inside the request. Fast and simple, but can't make smart decisions based on the content of the request.
@@ -5748,7 +6024,7 @@ diagram:`<svg viewBox="0 0 520 120" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A developer pushes a change to the fraud-scoring service. The CI pipeline automatically runs the full test suite, builds a new container image, and scans it for known security vulnerabilities in its dependencies. If everything passes, the CD pipeline automatically deploys it as a canary release, watches error rates for 10 minutes, and only then rolls it out to 100% of traffic — all without a human manually running any of these steps.`,
 trade:[`Automating this pipeline dramatically reduces human error (forgetting a step, deploying the wrong version) and lets teams ship far more frequently and confidently, but a pipeline with weak or slow tests gives false confidence — "the pipeline passed" is only as trustworthy as the tests and checks actually built into it.`,`For a fintech company specifically, the pipeline itself becomes part of your compliance story — auditors will often want to see that changes can't reach production without passing through automated tests and, often, a required human approval step for especially sensitive changes.`],related:["Infrastructure as Code (IaC)", "Zero-Downtime Deployment"]},
 
-{cat:"CC", title:"Infrastructure as Code (IaC)", def:`Instead of manually clicking through a cloud provider's dashboard to create servers, databases, and networking rules, you write that configuration down as code (using tools like Terraform or CloudFormation) and let a tool apply it automatically. The code becomes the single source of truth for what infrastructure should exist.`,
+{cat:"CC", title:"Infrastructure as Code (IaC)", def:`Instead of manually clicking through a cloud provider's dashboard to create servers, databases, and networking rules, you write that configuration down as code (using tools like Terraform or CloudFormation, or Pulumi if you'd rather use a general-purpose language like Python or TypeScript instead of a dedicated declarative syntax) and let a tool apply it automatically. The code becomes the single source of truth for what infrastructure should exist.`,
 diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <rect x="30" y="35" width="150" height="40" rx="6" fill="var(--panel)" stroke="var(--border)" stroke-width="2"/>
   <text x="105" y="53" text-anchor="middle" fill="var(--text-dim)" font-size="9">main.tf (version-controlled)</text>
@@ -5919,6 +6195,51 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A new interest-calculation engine is deployed behind a flag, dark, for two weeks while the team validates its output against the old engine on internal accounts only. When confident, the flag is turned on for 1% of real customer accounts, watched closely, then ramped to 100% — and if a discrepancy is found at any point, the flag is flipped back off instantly, with no deploy or rollback required.`,
 trade:[`Decouples release timing from deploy timing and enables instant, redeploy-free rollback, but every long-lived flag is genuinely two code paths that both need to keep working and both need test coverage — flags that are never cleaned up after the feature fully ships become permanent complexity and a real source of confusing, hard-to-reason-about behavior.`,`Flag state itself becomes a dependency the system relies on at request time (usually fetched from a flag service or cache) — if that flag service is slow or unavailable, the fallback behavior it defaults to needs to be deliberately chosen, not accidental, since "flag service down" now has to be treated as its own real failure mode.`],related:["Blue-Green vs Canary Deployment", "Zero-Downtime Deployment"],priority:"high"},
+
+{cat:"CC", title:"GitOps", def:`A deployment and operations model where a git repository is the single source of truth for what your system's desired state should be — both infrastructure and application configuration — instead of engineers running one-off imperative commands against a live environment.
+
+An automated controller (like Argo CD or Flux) continuously compares the actual state of the running system against what's declared in git, and automatically reconciles any difference by applying whatever changes are needed to match git, rather than a CI pipeline simply pushing changes out once and being done.
+
+This is a meaningful shift from typical push-based CI/CD (covered in the CI/CD Pipelines topic): instead of a pipeline directly deploying to the target environment, the controller pulls the desired state from git and applies it, which means every change — including any manual, undocumented change someone made directly against production — is visible as drift and gets corrected automatically.`,
+diagram:`<svg viewBox="0 0 560 210" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="80" width="110" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="75" y="102" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Engineer</text>
+  <text x="75" y="117" text-anchor="middle" fill="var(--text-faint)" font-size="8">merges a pull request</text>
+
+  <line x1="130" y1="105" x2="195" y2="105" stroke="var(--blue)" stroke-width="2" marker-end="url(#go-1)"/>
+  <text x="163" y="95" text-anchor="middle" fill="var(--blue)" font-size="9">push</text>
+
+  <rect x="200" y="80" width="110" height="50" rx="6" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="255" y="102" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Git repo</text>
+  <text x="255" y="117" text-anchor="middle" fill="var(--text-faint)" font-size="8">desired state</text>
+
+  <line x1="310" y1="95" x2="375" y2="95" stroke="var(--ledger)" stroke-width="2" marker-end="url(#go-2)"/>
+  <text x="343" y="85" text-anchor="middle" fill="var(--ledger)" font-size="9">pulls</text>
+
+  <rect x="380" y="70" width="130" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="445" y="92" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">GitOps controller</text>
+  <text x="445" y="107" text-anchor="middle" fill="var(--text-faint)" font-size="8">e.g. Argo CD</text>
+
+  <line x1="380" y1="115" x2="310" y2="130" stroke="var(--text-faint)" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#go-3)"/>
+  <text x="343" y="147" text-anchor="middle" fill="var(--text-faint)" font-size="8">continuously compares</text>
+
+  <line x1="445" y1="120" x2="445" y2="160" stroke="var(--amber)" stroke-width="2" marker-end="url(#go-4)"/>
+  <text x="490" y="145" text-anchor="middle" fill="var(--amber)" font-size="9">reconciles drift</text>
+
+  <rect x="380" y="165" width="130" height="35" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="445" y="187" text-anchor="middle" fill="var(--text)" font-size="10">Live cluster</text>
+
+  <text x="280" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Controller pulls from git and continuously reconciles — no manual push to prod</text>
+
+  <defs>
+    <marker id="go-1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--blue)"/></marker>
+    <marker id="go-2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="go-3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+    <marker id="go-4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
+  </defs>
+</svg>`,
+ex:`An on-call engineer, mid-incident, runs a manual command to bump replica count directly against the production payments service. A few minutes later the GitOps controller detects that the live cluster no longer matches what's declared in git and quietly reverts it back down — which is exactly the intended behavior, but only makes sense if the team knows to fix it properly (a merged pull request raising the replica count in git) instead of repeatedly fighting the controller with the same manual command.`,
+trade:[`A genuine production emergency sometimes needs an urgent, out-of-band change faster than "open a PR, get it reviewed, merge, wait for reconciliation" allows — teams need a deliberate, audited break-glass procedure for that case, or the controller will simply undo the emergency fix.`,`There's a real delay between "merged to git" and "actually running," since reconciliation happens on a loop rather than instantly — this can surprise teams used to a traditional pipeline that deploys the moment a build finishes.`,`Secrets can't just be committed to git in plaintext, so GitOps setups need a separate secrets-management integration (sealed secrets, an external vault) layered on top, adding its own operational complexity.`],related:["CI/CD Pipelines", "Infrastructure as Code (IaC)", "Blue-Green vs Canary Deployment"]},
 ];
 
 /* =========================================================
