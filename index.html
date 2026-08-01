@@ -310,9 +310,23 @@
   .card p{line-height:1.8;font-size:16px;color:var(--text);margin:0 0 15px 0;max-width:70ch;}
   .card p br{display:block;margin-top:6px;content:"";}
   .card p:last-child{margin-bottom:0;}
+  .card.def .term-line{border-left:2px solid var(--border);border-radius:0;padding-left:14px;}
+  .card.def .term-label{color:var(--text);font-weight:600;}
+  .card.def .term-label.acronym{color:var(--ledger);}
+  .card.def .term-desc{color:var(--text-dim);}
+  .acro{font-weight:600;}
+  .card.def .acro{color:var(--ledger);}
+  .card.ex .acro{color:var(--blue);}
+  .card.trade .acro{color:var(--amber);}
   .card ul{margin:0;padding-left:20px;}
-  .card li{line-height:1.75;font-size:16px;margin-bottom:11px;max-width:70ch;}
+  .card li{line-height:1.75;font-size:16px;margin-bottom:14px;max-width:70ch;}
   .card li:last-child{margin-bottom:0;}
+  .card.trade li::marker{color:var(--amber);}
+  .card.trade li{padding-left:4px;}
+  .card.trade li.trade-line{list-style:none;border-left:2px solid var(--border);border-radius:0;padding-left:14px;margin-left:-4px;}
+  .trade-up{color:var(--text);}
+  .trade-down{color:var(--text-dim);}
+  .trade-pivot{color:var(--amber);font-weight:600;}
   .card.ex{border-left:3px solid var(--blue);}
   .card.def{border-left:3px solid var(--ledger);}
   .card.trade{border-left:3px solid var(--amber);}
@@ -547,7 +561,9 @@ diagram:`<svg viewBox="0 0 700 430" xmlns="http://www.w3.org/2000/svg" font-fami
   <polyline points="70,355 168,334 266,291 364,227 462,147 560,57" fill="none" stroke="var(--pink)" stroke-width="2.5"/>
   <text x="568" y="61" fill="var(--pink)" font-size="13" font-weight="600">O(n!)</text>
 </svg>`,
-ex:`A service checking "has this idempotency key already been used?" by looping through a list of the last 10,000 keys checking each one (O(n) per check) works fine in a demo with 50 keys, but becomes a real, measurable bottleneck at production volume. Storing those keys in a hash map (or a proper key-value store like Redis) instead makes that same check close to instant, regardless of how many keys exist — this is exactly the kind of practical, "which data structure" decision that shows up constantly in real backend code, even though it looks like a simple choice.`,
+ex:`A service checking "has this idempotency key already been used?" by looping through a list of the last 10,000 keys checking each one (O(n) per check) works fine in a demo with 50 keys, but becomes a real, measurable bottleneck at production volume.
+
+Storing those keys in a hash map (or a proper key-value store like Redis) instead makes that same check close to instant, regardless of how many keys exist — this is exactly the kind of practical, "which data structure" decision that shows up constantly in real backend code, even though it looks like a simple choice.`,
 trade:[`Understanding Big-O isn't about memorizing academic notation — it's a practical tool for spotting the difference between code that will scale and code that will quietly become a production incident once the data volume grows past what anyone tested with.`,`This guide deliberately doesn't go deep into algorithm design or whiteboard-style coding-interview problems — the goal here is recognizing when a data-structure choice matters in real backend code, not mastering algorithmic puzzle-solving.`],related:["Indexing Strategy", "Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
 
 {cat:"CS", title:"OS Basics: Process vs Thread, Stack vs Heap", def:`Underneath all the application-level concurrency covered earlier in this guide (coroutines, thread pools, and so on) sits the operating system's own, more fundamental building blocks.
@@ -616,7 +632,9 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="460" y="59" text-anchor="middle" fill="var(--red)" font-size="7">Instance A (only)</text>
   <text x="460" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="8">must always return to this exact instance</text>
 </svg>`,
-ex:`A stateless authentication approach validates a signed token (like a JWT, covered in the Security section) on every request without needing to remember anything about earlier requests — any server instance can handle any request, which is exactly why load balancing and autoscaling work so cleanly. A stateful alternative that keeps logged-in sessions in each server's local memory would require "sticky sessions" (always routing the same user back to the same instance), which directly limits how freely you can scale, rebalance, or replace instances.`,
+ex:`A stateless authentication approach validates a signed token (like a JWT, covered in the Security section) on every request without needing to remember anything about earlier requests — any server instance can handle any request, which is exactly why load balancing and autoscaling work so cleanly.
+
+A stateful alternative that keeps logged-in sessions in each server's local memory would require "sticky sessions" (always routing the same user back to the same instance), which directly limits how freely you can scale, rebalance, or replace instances.`,
 trade:[`Statelessness is what makes horizontal scaling, load balancing, and easy recovery from failure actually simple — this is precisely why so many patterns throughout this guide (external caches instead of local ones, externalized session/config, idempotent APIs) all push in the same direction.`,`Some things are genuinely hard to make fully stateless (a long-lived WebSocket connection, covered in the Networking section, inherently ties a client to a specific server instance for its duration) — the practical goal isn't "eliminate all state everywhere," it's "don't keep state in application memory by default, and be deliberate on the specific occasions where you genuinely need to."`],related:["Serverless / FaaS (Function as a Service)", "Load Balancing Algorithms (L4 vs L7)", "Vertical vs Horizontal Scaling"],priority:"high"},
 
 {cat:"CS", title:"Latency, Throughput & IOPS: The Core Performance Metrics", def:`Three related but easily-confused ways to measure performance. Improving one doesn't automatically improve the others — sometimes it makes another one worse, which is exactly the question interviewers are really asking when they say "how would you improve performance here?"
@@ -672,7 +690,11 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
 
   <text x="280" y="157" text-anchor="middle" fill="var(--text-faint)" font-size="10">Same time window — how long, how much total, how many operations</text>
 </svg>`,
-ex:`A card-authorization endpoint has a 40ms p99 latency — fine, since it's one decision with one customer waiting — but only handles 200 requests/second on a single instance; during a Black-Friday-style spike it needs to scale horizontally to 5,000 requests/second of throughput without regressing that same 40ms latency figure. Meanwhile, the nightly ledger reconciliation job is throughput-bound rather than latency-bound: a batch job reading 40 million rows overnight cares about total records-per-second, not how fast any single row read completes. Underneath both, the ledger's database is provisioned on NVMe storage specifically because tens of thousands of small, individual debit/credit row writes per second would exhaust a spinning-disk's IOPS budget long before it ran out of raw data throughput.`,
+ex:`A card-authorization endpoint has a 40ms p99 latency — fine, since it's one decision with one customer waiting — but only handles 200 requests/second on a single instance; during a Black-Friday-style spike it needs to scale horizontally to 5,000 requests/second of throughput without regressing that same 40ms latency figure.
+
+Meanwhile, the nightly ledger reconciliation job is throughput-bound rather than latency-bound: a batch job reading 40 million rows overnight cares about total records-per-second, not how fast any single row read completes.
+
+Underneath both, the ledger's database is provisioned on NVMe storage specifically because tens of thousands of small, individual debit/credit row writes per second would exhaust a spinning-disk's IOPS budget long before it ran out of raw data throughput.`,
 trade:[`Optimizing for throughput (batching, queuing, more parallelism) commonly increases tail latency for individual requests — a fix for one metric that actively regresses the other, so they need to be tracked and reported as separate numbers, not folded into one "performance" score.`,`Provisioned IOPS on cloud storage (e.g. AWS io2 volumes) is billed independently of raw storage size, so chasing IOPS to fix a latency problem that's actually caused by an unindexed query just adds cost without touching the real bottleneck.`,`A system tuned purely for maximum aggregate throughput can still produce a bad p99 latency experience for individual users even while the dashboard's average numbers look great — aggregate metrics can hide exactly the pain an individual customer feels.`],related:["Vertical vs Horizontal Scaling", "Capacity Planning & Autoscaling", "Finding Slow Queries"],priority:"high"},
 
 // ---------------- NETWORKING FUNDAMENTALS ----------------
@@ -1024,7 +1046,9 @@ diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-fami
   <defs><marker id="cdnArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker></defs>
   <text x="280" y="185" text-anchor="middle" fill="var(--text-faint)" font-size="9">User's request hits the nearest edge cache; origin is only reached on a miss.</text>
 </svg>`,
-ex:`Static assets for a banking app's web dashboard (JavaScript files, images, CSS) are served through a CDN, so a user in Singapore loads them from a nearby CDN server in milliseconds instead of waiting for a round trip to the company's origin servers in the US. Sensitive, personalized data (like the user's actual account balance) is never cached at the CDN — that always goes directly to the origin, since it's different for every user and far too sensitive to cache in a shared, distributed location.`,
+ex:`Static assets for a banking app's web dashboard (JavaScript files, images, CSS) are served through a CDN, so a user in Singapore loads them from a nearby CDN server in milliseconds instead of waiting for a round trip to the company's origin servers in the US.
+
+Sensitive, personalized data (like the user's actual account balance) is never cached at the CDN — that always goes directly to the origin, since it's different for every user and far too sensitive to cache in a shared, distributed location.`,
 trade:[`Excellent for static, non-sensitive, widely-shared content (assets, public marketing pages), but a CDN should almost never cache personalized or sensitive financial data — misconfiguring cache rules to accidentally cache a personalized API response (like one user's balance) at a CDN, where it could potentially be served to a different user, would be a serious data-leak risk.`],related:["DNS: How Domain Name Resolution Works", "Multi-Level Caching"]},
 
 {cat:"NW", title:"What Happens When You Type a URL and Press Enter", def:`A classic interview question because answering it well touches almost everything in this Networking section at once. Here's the journey, step by step, for visiting an HTTPS site like your bank's web login.
@@ -1091,7 +1115,9 @@ diagram:`<svg viewBox="0 0 560 620" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="u-a" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
   </defs>
 </svg>`,
-ex:`Logging into a banking app's web dashboard: DNS resolves the bank's domain, a TCP+TLS connection is established, the login page HTML loads through the bank's load balancer and app servers, and then the browser fires off separate requests (often via a CDN) for the page's CSS and JavaScript. Once the user actually submits their login form, a brand-new HTTP request (reusing the already-open, already-encrypted connection, thanks to connection keep-alive) is sent to an authentication endpoint, which validates credentials against a database and returns a session token — kicking off the "real" application flow this whole guide has been about.`,
+ex:`Logging into a banking app's web dashboard: DNS resolves the bank's domain, a TCP+TLS connection is established, the login page HTML loads through the bank's load balancer and app servers, and then the browser fires off separate requests (often via a CDN) for the page's CSS and JavaScript.
+
+Once the user actually submits their login form, a brand-new HTTP request (reusing the already-open, already-encrypted connection, thanks to connection keep-alive) is sent to an authentication endpoint, which validates credentials against a database and returns a session token — kicking off the "real" application flow this whole guide has been about.`,
 trade:[`As a backend engineer, you don't control steps 1-5 (that's the browser and network's job) or step 9-10 (that's the frontend's job) — your responsibility starts at step 6 and ends at step 8. But understanding the full picture matters, because a slow "page load" a user complains about could genuinely be a DNS issue, a TLS handshake issue, a slow backend response, or a frontend rendering issue — and correctly figuring out which one it is is exactly the kind of debugging skill covered in this guide's Debugging Production section.`,`This is also why so many performance techniques throughout this guide exist: DNS caching and CDNs shorten steps 1-2 and step 9's extra asset requests; connection keep-alive avoids repeating steps 3-4 on every subsequent request; and load balancers plus well-tuned app servers keep steps 6-8 fast — nearly every optimization in this entire guide maps to shortening one specific step in this journey.`],related:["DNS: How Domain Name Resolution Works", "TCP Handshake & Connection Lifecycle", "HTTPS & the TLS Handshake", "Load Balancing Algorithms (L4 vs L7)"],priority:"high"},
 
 // ---------------- DISTRIBUTED SYSTEMS ----------------
@@ -2038,7 +2064,11 @@ diagram:`<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="490" y="196" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">no blocking; rare conflicts</text>
   <text x="490" y="209" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">just retry cheaply</text>
 </svg>`,
-ex:`A wallet-withdrawal endpoint and a user-profile-update endpoint sit in the same service. The wallet endpoint uses pessimistic locking (\`SELECT balance FROM wallets WHERE id = ? FOR UPDATE\`) because withdrawals on the same wallet are both frequent enough to collide and expensive to get wrong. The profile endpoint uses optimistic locking (a \`version\` column) because two people almost never edit the same profile at the same instant, and if they do, asking one of them to retry costs nothing more than re-submitting a form.`,
+ex:`A wallet-withdrawal endpoint and a user-profile-update endpoint sit in the same service.
+
+The wallet endpoint uses pessimistic locking (\`SELECT balance FROM wallets WHERE id = ? FOR UPDATE\`) because withdrawals on the same wallet are both frequent enough to collide and expensive to get wrong.
+
+The profile endpoint uses optimistic locking (a \`version\` column) because two people almost never edit the same profile at the same instant, and if they do, asking one of them to retry costs nothing more than re-submitting a form.`,
 trade:[`This decision isn't permanent or global — the same table can reasonably use pessimistic locking on its balance column and optimistic locking on a rarely-contended metadata column, since the right choice is a property of the access pattern for that specific field, not the table as a whole.`,`Defaulting to pessimistic locking "to be safe" everywhere avoids this decision but quietly taxes every code path with blocking and deadlock risk, even the ones that never see real contention — the decision is worth making deliberately per use case rather than picking one default for an entire codebase.`],related:["Pessimistic Locking", "Optimistic Locking", "Case Study: The Wallet Overdraft Race Condition"],priority:"high"},
 
 {cat:"CD", title:"Lock Granularity & Escalation", def:`Locks can be taken at row, page, or table level. Finer granularity (row-level) allows more concurrency but costs more memory/overhead to track; the database may automatically escalate many row locks into a single table lock under memory pressure, unexpectedly serializing unrelated transactions.`,
@@ -2234,7 +2264,9 @@ diagram:`<svg viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="455" y="68" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-weight="600">Node</text>
   <text x="455" y="100" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">Document = "row"</text>
 </svg>`,
-ex:`A fintech company wants customer support agents to search through millions of transaction records by free-text description ("find anything mentioning 'refund dispute'"), even with typos or partial matches. Their main Postgres database can technically do a text search, but it's slow and limited at that scale. So transaction records are also copied into an Elasticsearch index, purpose-built for this kind of fast, flexible search — while Postgres remains the actual source of truth for the transaction data itself.`,
+ex:`A fintech company wants customer support agents to search through millions of transaction records by free-text description ("find anything mentioning 'refund dispute'"), even with typos or partial matches.
+
+Their main Postgres database can technically do a text search, but it's slow and limited at that scale. So transaction records are also copied into an Elasticsearch index, purpose-built for this kind of fast, flexible search — while Postgres remains the actual source of truth for the transaction data itself.`,
 trade:[`Elasticsearch is excellent at search and analytics, but it's generally not meant to be your primary system of record for critical transactional data — it has weaker consistency and transaction guarantees than a relational database, so the common pattern is: keep your real source of truth in a proper database, and sync a copy into Elasticsearch (often via CDC, covered earlier in this guide) purely for search and analytics.`],related:["How Elasticsearch Achieves Fast Reads (Inverted Index)"]},
 
 {cat:"DB", title:"How Elasticsearch Achieves Fast Reads (Inverted Index)", def:`A regular database, searching for "find all rows where the description contains the word refund," often has to scan through rows checking each one — slow at scale unless you have a very specific kind of index built for exactly that phrase, which is hard to do for free-text search.
@@ -2366,7 +2398,11 @@ diagram:`<svg viewBox="0 0 560 300" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="280" y="248" text-anchor="middle" fill="var(--ledger)" font-size="11" font-weight="600">■ Primary shard (authoritative)</text>
   <text x="280" y="264" text-anchor="middle" fill="var(--blue)" font-size="11" font-weight="600">■ Replica shard (copy, on a different node)</text>
 </svg>`,
-ex:`An index of transaction records is created with 5 primary shards and 1 replica of each (10 shards total, spread across the cluster). A search for "refund" is broken into 5 smaller searches, one per primary shard (or its replica), run in parallel, and the results are merged together and ranked before being returned — much faster than searching one giant index sequentially. If a node holding one primary shard fails, its replica on another node is automatically promoted, and no data or search capability is lost.`,
+ex:`An index of transaction records is created with 5 primary shards and 1 replica of each (10 shards total, spread across the cluster).
+
+A search for "refund" is broken into 5 smaller searches, one per primary shard (or its replica), run in parallel, and the results are merged together and ranked before being returned — much faster than searching one giant index sequentially.
+
+If a node holding one primary shard fails, its replica on another node is automatically promoted, and no data or search capability is lost.`,
 trade:[`Too few shards limits how much you can parallelize search and how far you can scale later. Too many shards adds overhead (each shard has some fixed memory/resource cost, even when small) and can actually slow things down — this is why picking a sensible shard count upfront, based on expected data volume, matters far more in Elasticsearch than it might in some other systems.`,`Because changing the primary shard count later requires reindexing into a new index, many teams deliberately plan for future growth by either estimating shard count generously upfront, or using time-based indices (like one index per month) so that future growth just means creating new indices with a better shard count, rather than resizing an existing one.`],related:["Sharding & Shard Key Selection", "Scaling Elasticsearch"]},
 
 {cat:"DB", title:"Scaling Elasticsearch", def:`A few complementary strategies, often used together, for growing an Elasticsearch deployment as data and traffic increase.
@@ -2397,7 +2433,9 @@ diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="485" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">cheapest, rare access</text>
   <text x="280" y="105" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">ILM rules move (and eventually delete) indices automatically</text>
 </svg>`,
-ex:`A fintech company's transaction-search index grows by millions of records daily. They use daily time-based indices, keep the last 30 days on fast hot-tier nodes (since customer support mostly searches recent transactions), automatically move indices older than 30 days to cheaper warm-tier storage, and automatically delete indices older than 7 years to match their regulatory data-retention policy — all handled automatically through Index Lifecycle Management rules, with no one manually managing this month by month.`,
+ex:`A fintech company's transaction-search index grows by millions of records daily.
+
+They use daily time-based indices, keep the last 30 days on fast hot-tier nodes (since customer support mostly searches recent transactions), automatically move indices older than 30 days to cheaper warm-tier storage, and automatically delete indices older than 7 years to match their regulatory data-retention policy — all handled automatically through Index Lifecycle Management rules, with no one manually managing this month by month.`,
 trade:[`Time-based indices and ILM together solve most of the "how do we keep this manageable and affordable as it grows forever" problem, but they require some upfront design thinking (how to split indices, what the retention rules should be) rather than just letting one index grow indefinitely by default.`,`Hot-warm-cold architectures save real money at scale, but add operational complexity — you now have different hardware tiers to manage and monitor, and a bug in your ILM rules could accidentally delete data before it's supposed to be deleted, or move it to slow storage while it's still being actively queried.`],related:["Elasticsearch Sharding", "Scaling a Database Globally (Users Across Many Countries)"]},
 
 {cat:"DB", title:"Isolation Levels & Anomalies", def:`SQL defines four levels of isolation, controlling how much one transaction is allowed to "see" of another transaction's in-progress work. Going down this list, each level fixes one more problem, but also costs a bit more performance.
@@ -2549,7 +2587,11 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
   <rect x="20" y="140" width="510" height="26" fill="var(--red)" fill-opacity="0.1" stroke="var(--red)" stroke-dasharray="3 2"/>
   <text x="30" y="157" fill="var(--red)" font-size="9.5">Combined: two approvals happened the same day — the rule only either checked alone.</text>
 </svg>`,
-ex:`An account requires at least one of two joint owners to approve any withdrawal over $1,000, and the rule is "at least one owner must remain who hasn't already used their approval today." Owner A checks "has someone else already approved today?" — sees no — and approves a withdrawal. At almost the same moment, Owner B runs the exact same check — also sees no, since Owner A's approval hasn't been committed yet — and also approves a separate withdrawal. Individually, each approval looked completely valid at the moment it was checked. Combined, the rule "only one approval per day" has now been violated by both happening at once.`,
+ex:`An account requires at least one of two joint owners to approve any withdrawal over $1,000, and the rule is "at least one owner must remain who hasn't already used their approval today."
+
+Owner A checks "has someone else already approved today?" — sees no — and approves a withdrawal. At almost the same moment, Owner B runs the exact same check — also sees no, since Owner A's approval hasn't been committed yet — and also approves a separate withdrawal.
+
+Individually, each approval looked completely valid at the moment it was checked. Combined, the rule "only one approval per day" has now been violated by both happening at once.`,
 trade:[`This is the one anomaly that even Repeatable Read does not protect against — only Serializable isolation (or explicit application-level locking on all the rows the decision actually depends on) prevents it, which is exactly why financial approval and limit-checking logic often needs the strongest isolation level available, even though it's the most expensive one.`],related:["Isolation Levels & Anomalies"]},
 
 {cat:"DB", title:"Indexing Strategy", def:`An index is a data structure (usually B-Tree) that lets the database find rows without scanning the whole table, at the cost of extra storage and slower writes (every index must be updated on insert/update/delete).`,
@@ -2666,7 +2708,9 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="35" y="115" fill="var(--text-dim)" font-size="9.5">Running the OLAP query directly against the OLTP database risks locking</text>
   <text x="35" y="129" fill="var(--text-dim)" font-size="9.5">rows real transactions need — separation avoids that interference entirely.</text>
 </svg>`,
-ex:`A fintech company's core ledger database (OLTP) handles thousands of individual transaction writes per second. Their finance team's monthly "revenue by region" report used to run directly against that same database, occasionally causing real transaction processing to slow down during report generation. Moving that reporting workload to a separate data warehouse (OLAP), fed by a nightly (or CDC-streamed) copy of the ledger data, completely isolates the two — the heavy analytical query can no longer interfere with real-time payment processing at all.`,
+ex:`A fintech company's core ledger database (OLTP) handles thousands of individual transaction writes per second. Their finance team's monthly "revenue by region" report used to run directly against that same database, occasionally causing real transaction processing to slow down during report generation.
+
+Moving that reporting workload to a separate data warehouse (OLAP), fed by a nightly (or CDC-streamed) copy of the ledger data, completely isolates the two — the heavy analytical query can no longer interfere with real-time payment processing at all.`,
 trade:[`Keeping OLTP and OLAP workloads separate adds real infrastructure (a second system, and a way to keep it in sync — often via CDC, covered earlier in this guide), but protects your core transactional system from being destabilized by analytical query load, which is a serious operational risk if ignored.`,`OLAP-oriented systems are often built on genuinely different underlying storage technology (columnar storage, which stores each column's data together instead of each row together) specifically because it makes "scan and aggregate one column across millions of rows" dramatically faster than a row-oriented OLTP database can manage — a real example of picking storage technology to match the actual access pattern.`],related:["SQL vs NoSQL vs NewSQL", "Scaling a Database Globally (Users Across Many Countries)"],priority:"high"},
 
 {cat:"DB", title:"Bloom Filters", def:`A probabilistic data structure that answers one specific question extremely quickly and with very little memory: "is this value DEFINITELY NOT in this dataset, or might it possibly be?" It can never give a false "definitely not in there" — but it can occasionally give a false "might be in there" for a value that actually isn't (a "false positive"). It never produces a false negative.
@@ -2723,7 +2767,11 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
 
   <text x="290" y="155" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">many app-side connections multiplexed onto far fewer real DB connections</text>
 </svg>`,
-ex:`A fintech company runs 50 instances of their transaction service, each configured with a local pool of 20 database connections — that's 1,000 potential connections, but their database's `+"`max_connections`"+` is set to 200. Under load, instances start failing to get a database connection at all, even though the database's actual CPU and query capacity aren't close to being maxed out. Introducing PgBouncer between the app instances and the database lets all 50 instances share a much smaller pool of real connections, solving the exhaustion problem without needing to raise `+"`max_connections`"+` to a number the database can't actually handle efficiently.`,
+ex:`A fintech company runs 50 instances of their transaction service, each configured with a local pool of 20 database connections — that's 1,000 potential connections, but their database's `+"`max_connections`"+` is set to 200.
+
+Under load, instances start failing to get a database connection at all, even though the database's actual CPU and query capacity aren't close to being maxed out.
+
+Introducing PgBouncer between the app instances and the database lets all 50 instances share a much smaller pool of real connections, solving the exhaustion problem without needing to raise `+"`max_connections`"+` to a number the database can't actually handle efficiently.`,
 trade:[`This problem gets dramatically worse in serverless/auto-scaling environments (like AWS Lambda), where the number of application instances can spike very quickly and unpredictably — each new instance potentially opening its own fresh set of connections — which is exactly the scenario external poolers are most critical for.`,`A pool that's too small causes requests to queue up waiting for a connection even when the database itself has spare capacity; a pool that's too large risks exhausting the database's connection limit — sizing needs to account for the number of application instances multiplied by their per-instance pool size, not just one instance in isolation.`,`Idle connections sitting in a pool for too long can also go stale or get silently closed by the database or a network device in between — a well-configured pool needs a reasonable idle timeout and a way to detect and discard dead connections rather than handing one out that will fail immediately.`],related:["Connection Pooling & Keep-Alive", "Serverless / FaaS (Function as a Service)"],priority:"high"},
 
 {cat:"DB", title:"Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN", def:`Five different data structures a database can use to find rows quickly, each good at different things. The first three show up across most relational and NoSQL databases; the last two are Postgres-specific but the underlying idea (index structured data differently depending on its shape) applies everywhere.
@@ -2799,7 +2847,15 @@ diagram:`<svg viewBox="0 0 660 350" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="330" y="308" text-anchor="middle" fill="var(--amber)" font-size="12" font-weight="600">~ = usable, but not the right specialized choice</text>
   <text x="330" y="328" text-anchor="middle" fill="var(--red)" font-size="12" font-weight="600">✗ = essentially can't do this well</text>
 </svg>`,
-ex:`A B-Tree index on `+"`created_at`"+` efficiently serves "transactions in the last 24 hours" (a range query). A hash index on an exact idempotency-key lookup table serves "does this exact key exist" lookups slightly faster than a B-Tree, but couldn't serve a "keys created between X and Y" query at all. A high-volume event-ingestion store built on an LSM-tree (e.g., Cassandra) sustains far higher write throughput than a B-Tree-based relational table under the same load, at the cost of read amplification (may need to check multiple files) and background compaction overhead. A GIN index on a `+"`metadata jsonb`"+` column lets a fraud-review query find every transaction where the payment processor's payload contains a specific risk flag, something a plain B-Tree can't do on a JSON column at all. A BRIN index on a 500-million-row `+"`ledger_entries`"+` table's `+"`created_at`"+` column takes up a few hundred kilobytes instead of the several gigabytes a B-Tree on that same column would need, because it only remembers the min and max timestamp per block of rows, a huge win on a column that's already naturally ordered by insert time.`,
+ex:`A B-Tree index on `+"`created_at`"+` efficiently serves "transactions in the last 24 hours" (a range query).
+
+A hash index on an exact idempotency-key lookup table serves "does this exact key exist" lookups slightly faster than a B-Tree, but couldn't serve a "keys created between X and Y" query at all.
+
+A high-volume event-ingestion store built on an LSM-tree (e.g., Cassandra) sustains far higher write throughput than a B-Tree-based relational table under the same load, at the cost of read amplification (may need to check multiple files) and background compaction overhead.
+
+A GIN index on a `+"`metadata jsonb`"+` column lets a fraud-review query find every transaction where the payment processor's payload contains a specific risk flag, something a plain B-Tree can't do on a JSON column at all.
+
+A BRIN index on a 500-million-row `+"`ledger_entries`"+` table's `+"`created_at`"+` column takes up a few hundred kilobytes instead of the several gigabytes a B-Tree on that same column would need, because it only remembers the min and max timestamp per block of rows, a huge win on a column that's already naturally ordered by insert time.`,
 trade:[`B-Tree is the right general-purpose default — supports the widest range of query patterns and is what you get automatically in Postgres/MySQL unless you specify otherwise.`,`Hash indexes are a narrow optimization (equality-only) that's rarely worth the specialization unless you've profiled a genuine equality-lookup bottleneck — and many databases restrict what operations they even support on a hash index (e.g., historically not crash-safe replication in some engines).`,`LSM-trees trade read performance and operational complexity (compaction tuning) for write throughput — the right choice when your workload is write-heavy and append-like (event logs, time-series) rather than read-heavy or update-heavy.`,`GIN indexes are powerful for JSON/array/full-text search but expensive to update, since a single write can touch many index entries (one per value inside the document) — a poor fit for columns that change constantly.`,`BRIN indexes are extremely cheap to store and maintain, but only work well when the column is naturally correlated with its physical row order — let the table get reordered or heavily updated out of sequence, and a BRIN index quietly stops helping instead of failing loudly, which makes it a trap if nobody's watching query plans afterward.`],related:["Indexing Strategy", "Data Structures & Big-O Complexity for Backend Engineers"],priority:"high"},
 
 {cat:"DB", title:"RAG & Vector Databases", def:`RAG (Retrieval-Augmented Generation) — instead of relying only on what a language model learned during training (which is fixed at training time and can be outdated, generic, or simply missing your company's private data), the system retrieves relevant documents from your own data at query time and includes them in the prompt, so the model's answer is grounded in current, specific information instead of whatever it can recall.
@@ -3128,7 +3184,9 @@ diagram:`<svg viewBox="0 0 480 180" xmlns="http://www.w3.org/2000/svg" font-fami
 
   <text x="240" y="175" text-anchor="middle" fill="var(--text-faint)" font-size="10">Flag toggles instantly — no redeploy needed to turn a feature off</text>
 </svg>`,
-ex:`A canary release routes 5% of payment traffic to the new version of the transaction service; error rates and latency are compared against the baseline before ramping to 100% — catching a regression while it only affects a small fraction of transactions. Separately, a new fraud-scoring algorithm might be deployed to 100% of servers immediately but kept behind a feature flag that's only enabled for 1% of transactions at first — letting the team turn it off instantly (a config change, not a rollback deploy) the moment something looks wrong.`,
+ex:`A canary release routes 5% of payment traffic to the new version of the transaction service; error rates and latency are compared against the baseline before ramping to 100% — catching a regression while it only affects a small fraction of transactions.
+
+Separately, a new fraud-scoring algorithm might be deployed to 100% of servers immediately but kept behind a feature flag that's only enabled for 1% of transactions at first — letting the team turn it off instantly (a config change, not a rollback deploy) the moment something looks wrong.`,
 trade:[`Canary/blue-green give strong safety nets but require running extra infrastructure temporarily and good automated comparison metrics — without solid observability, a canary is just "hope you notice the dashboard in time."`,`Database schema changes need their own compatible strategy (expand-contract) since you can't blue-green a shared database the same way as stateless app servers.`,`Feature flags decouple deployment risk from feature risk (a huge win — turning a feature off is instant, while rolling back a deploy takes time), but flags left in code long after they're no longer needed pile up as clutter and hidden complexity — a real discipline is required to clean up flags once a feature is fully rolled out and stable.`],related:["Expand-Contract Pattern (Zero-Downtime Schema Migration)", "Graceful Shutdown", "Liveness vs Readiness Probes"],priority:"high"},
 
 {cat:"RS", title:"Circuit Breaker", def:`Wraps calls to a potentially-failing dependency; after enough failures, it "opens" and fails fast without even attempting the call for a cooldown period, then "half-opens" to test if the dependency has recovered before fully closing again.`,
@@ -3413,7 +3471,11 @@ diagram:`<svg viewBox="0 0 640 200" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="tm-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
   </defs>
 </svg>`,
-ex:`A payment request flows Client → API Gateway → Payment Service → Fraud Scoring Service → Card Network. The client sets an overall 5-second deadline. The Gateway consumes 200ms of its own overhead (auth, routing) before calling the Payment Service, forwarding a 4,800ms remaining budget instead of handing that service a fresh 5 seconds of its own. If the Fraud Scoring Service call is slow, the Payment Service can see there are only, say, 300ms left in the shared budget and immediately fail fast with a clear "timed out waiting on fraud check" error — instead of hanging for however long its own default HTTP client timeout happens to be configured for, which might be 30 seconds, long after the original client already gave up.`,
+ex:`A payment request flows Client → API Gateway → Payment Service → Fraud Scoring Service → Card Network. The client sets an overall 5-second deadline.
+
+The Gateway consumes 200ms of its own overhead (auth, routing) before calling the Payment Service, forwarding a 4,800ms remaining budget instead of handing that service a fresh 5 seconds of its own.
+
+If the Fraud Scoring Service call is slow, the Payment Service can see there are only, say, 300ms left in the shared budget and immediately fail fast with a clear "timed out waiting on fraud check" error — instead of hanging for however long its own default HTTP client timeout happens to be configured for, which might be 30 seconds, long after the original client already gave up.`,
 trade:[`Setting timeouts too aggressively causes a different, equally real problem: false failures on requests that were actually going to succeed, just slightly slower than usual — for example during a brief GC pause or a normal traffic spike. Timeout values should generally come from measured latency percentiles (like p99) of the actual dependency, not a round number picked by feel.`,`Deadline propagation only works if every service in the chain actually participates — one service that ignores the incoming deadline and always uses its own fixed internal timeout breaks the guarantee for everything downstream of it, and this kind of gap is easy to introduce accidentally when a new service is added to an existing chain.`,`A timeout that fires doesn't mean the downstream operation didn't happen — the client genuinely doesn't know whether the request succeeded, failed, or is still in flight when it gives up waiting. This is exactly why timeouts and retries need to be paired with idempotency (covered elsewhere), not treated as a standalone reliability fix.`],
 code:`// Client sets an overall deadline for the whole request chain.
 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -3952,7 +4014,11 @@ diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="sf-r" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
   </defs>
 </svg>`,
-ex:`A fintech company's decade-old monolith handles accounts, payments, notifications, and reporting all in one codebase. The team wants to modernize payments without a risky rewrite, so they put a routing layer in front of the monolith and configure it to send only calls to /api/payments/* to a brand-new Payments service — everything else still goes to the monolith, unchanged. Once the new Payments service has run stably in production for a while, the next seam, like Notifications, gets extracted the exact same way, until the monolith eventually has nothing left routed to it but legacy reporting.`,
+ex:`A fintech company's decade-old monolith handles accounts, payments, notifications, and reporting all in one codebase.
+
+The team wants to modernize payments without a risky rewrite, so they put a routing layer in front of the monolith and configure it to send only calls to /api/payments/* to a brand-new Payments service — everything else still goes to the monolith, unchanged.
+
+Once the new Payments service has run stably in production for a while, the next seam, like Notifications, gets extracted the exact same way, until the monolith eventually has nothing left routed to it but legacy reporting.`,
 trade:[`Slower than a full rewrite in wall-clock time to fully complete, but dramatically lower risk — the system stays fully operational and shippable at every point along the way, unlike a big-bang rewrite where nothing works until the entire thing is finished.`,`Running two systems side by side for an extended period, sometimes years, has real operational cost: double the infrastructure, double the on-call surface, and often duplicated logic that has to stay in sync, like both systems still checking permissions against the same legacy user database.`,`The routing layer itself becomes critical, business-important infrastructure that needs its own reliability investment — a bug in the routing rules can silently send production traffic to the wrong system, or leave a seam stuck in a confusing, half-migrated state.`],related:["Microservices vs SOA vs Monolith", "Blue-Green vs Canary Deployment", "Feature Flags"]},
 
 // ---------------- TESTING STRATEGY ----------------
@@ -4434,7 +4500,11 @@ diagram:`<svg viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg" font-fami
 
   <text x="280" y="165" text-anchor="middle" fill="var(--text-faint)" font-size="9">Signature verification stops forged requests; the Inbox pattern absorbs duplicate retries.</text>
 </svg>`,
-ex:`A payment processor sends a webhook to notify a merchant's server the moment a payment settles. The merchant's endpoint verifies the request's signature (using a shared secret set up when the webhook was first configured) before trusting it — rejecting any request that fails this check, since an attacker could otherwise send a fake "payment settled" webhook trying to trick the merchant's system into releasing goods for a payment that never actually happened. If the merchant's server is briefly down when the webhook first arrives, the processor automatically retries with backoff, and the merchant's system recognizes and safely ignores the duplicate if it already processed the first successful delivery.`,
+ex:`A payment processor sends a webhook to notify a merchant's server the moment a payment settles.
+
+The merchant's endpoint verifies the request's signature (using a shared secret set up when the webhook was first configured) before trusting it — rejecting any request that fails this check, since an attacker could otherwise send a fake "payment settled" webhook trying to trick the merchant's system into releasing goods for a payment that never actually happened.
+
+If the merchant's server is briefly down when the webhook first arrives, the processor automatically retries with backoff, and the merchant's system recognizes and safely ignores the duplicate if it already processed the first successful delivery.`,
 trade:[`Webhooks are far more efficient than polling for real-time updates, but they require the receiver to expose a publicly reachable endpoint and to build real reliability handling (signature verification, deduplication of retried deliveries, and a plan for what happens if their endpoint is down for an extended period and the sender eventually gives up retrying).`,`Skipping signature verification is a genuine, exploitable security hole in a payment context specifically — never trust a webhook's contents just because it arrived at the expected URL.`],related:["Retry with Backoff & Jitter", "Idempotency & Exactly-Once Delivery"]},
 
 {cat:"MA", title:"Schema Evolution (Avro/Protobuf + Registry)", def:`When events flow through a message broker to multiple independent consumers, the event schema needs to change over time without breaking consumers still running the old version. A schema registry (with Avro or Protobuf) enforces compatibility rules (e.g., only additive, optional-field changes) at publish time.`,
@@ -4543,7 +4613,11 @@ diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-fami
   </defs>
   <text x="280" y="160" text-anchor="middle" fill="var(--text-faint)" font-size="9">Encryption: get the original back later. Hashing: only ever check a match.</text>
 </svg>`,
-ex:`A card number needs to be usable again later (to process a future payment), so it's encrypted, not hashed — the system can decrypt it when it genuinely needs the real number. A user's login password should never need to be "retrieved" at all — the system only ever needs to check "does this match," so it's hashed (see the dedicated Password Storage topic), not encrypted. Mixing these up — for example, encrypting a password instead of hashing it — means anyone who steals the encryption key can recover every user's actual password, which defeats the entire point.`,
+ex:`A card number needs to be usable again later (to process a future payment), so it's encrypted, not hashed — the system can decrypt it when it genuinely needs the real number.
+
+A user's login password should never need to be "retrieved" at all — the system only ever needs to check "does this match," so it's hashed (see the dedicated Password Storage topic), not encrypted.
+
+Mixing these up — for example, encrypting a password instead of hashing it — means anyone who steals the encryption key can recover every user's actual password, which defeats the entire point.`,
 trade:[`TLS (covered in the Networking section) actually uses both: asymmetric encryption during the handshake to safely agree on a shared secret, then fast symmetric encryption for the actual data that follows — a practical example of using each tool for what it's actually good at.`,`A common, serious mistake is using reversible encryption for something that should be hashed (like passwords) — it might look secure since the value isn't stored in plain text, but it's fundamentally the wrong tool, because it means the true plaintext password can be recovered by anyone with the key.`],related:["Password Storage & Hashing", "HTTPS & the TLS Handshake", "Encryption at Rest & in Transit (KMS/HSM)"],priority:"high"},
 
 {cat:"SC", title:"Password Storage & Hashing", def:`Passwords should never be encrypted — remember from the previous topic, encryption is reversible, and a password should never need to be "recovered," only checked. Instead, passwords are hashed using algorithms specifically designed for this job: bcrypt, scrypt, or Argon2 (the current best-practice choice).
@@ -4644,7 +4718,9 @@ diagram:`<svg viewBox="0 0 480 200" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="co-b" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--blue)"/></marker>
   </defs>
 </svg>`,
-ex:`A single-page app hosted at app.example.com calls an API at api.example.com. Without CORS configured, the browser blocks the app's JavaScript from reading the API's response, even if the request itself technically succeeded on the server. The API team adds `+"`Access-Control-Allow-Origin: https://app.example.com`"+` to their responses (a specific origin, not a wildcard, since the app sends an auth cookie) — now the browser permits the app's own JavaScript to read the response, while a random unrelated website trying the same request from a user's browser is still blocked.`,
+ex:`A single-page app hosted at app.example.com calls an API at api.example.com. Without CORS configured, the browser blocks the app's JavaScript from reading the API's response, even if the request itself technically succeeded on the server.
+
+The API team adds `+"`Access-Control-Allow-Origin: https://app.example.com`"+` to their responses (a specific origin, not a wildcard, since the app sends an auth cookie) — now the browser permits the app's own JavaScript to read the response, while a random unrelated website trying the same request from a user's browser is still blocked.`,
 trade:[`CORS is a browser-enforced protection — it does nothing to stop a direct server-to-server call, a mobile app, or a tool like curl, since those aren't browsers and don't enforce the Same-Origin Policy at all. It specifically protects browser-based JavaScript from reading responses across origins it shouldn't.`,`It's common for developers to "fix" a CORS error during development by setting `+"`Access-Control-Allow-Origin: *`"+` everywhere and never revisiting it — this is a real security regression in production if the API also relies on cookies for authentication, since it can open the door to cross-site data theft.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "Proxy vs Reverse Proxy vs API Gateway"]},
 
 {cat:"SC", title:"AuthN vs AuthZ (OAuth2 / OIDC / JWT)", def:`Authentication (AuthN) — proving who you are (logging in).
@@ -5168,7 +5244,9 @@ diagram:`<svg viewBox="0 0 580 210" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="gr-g" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ledger)"/></marker>
   </defs>
 </svg>`,
-ex:`A global payments platform runs full regional deployments in the US, EU, and APAC. A customer in Germany resolves the API's domain name and, thanks to GeoDNS, gets back the EU region's address instead of the US one, so their request never has to cross the Atlantic for a normal call. If the EU region is later marked unhealthy during an incident, the same system stops returning the EU address for new lookups, and German customers are instead routed to the next-nearest healthy region until EU recovers, with no client-side change or manual DNS update needed.`,
+ex:`A global payments platform runs full regional deployments in the US, EU, and APAC. A customer in Germany resolves the API's domain name and, thanks to GeoDNS, gets back the EU region's address instead of the US one, so their request never has to cross the Atlantic for a normal call.
+
+If the EU region is later marked unhealthy during an incident, the same system stops returning the EU address for new lookups, and German customers are instead routed to the next-nearest healthy region until EU recovers, with no client-side change or manual DNS update needed.`,
 trade:[`DNS-based routing changes aren't instant — DNS records have a TTL (time-to-live), and clients or resolvers that already cached the old answer keep using it until that TTL expires, putting a real floor on how fast failover can happen this way, unlike a load balancer that can react in seconds.`,`GeoDNS infers location from the resolver's IP, not always the actual client's location — a user behind a large ISP or corporate VPN that resolves DNS somewhere geographically different from the user themselves can occasionally get routed to the "wrong" region.`,`Latency-based routing requires ongoing, real measurement infrastructure, or a third-party provider that already has it, making it meaningfully more operationally complex than simple GeoDNS — worth the added cost only once "nearest by geography" and "actually fastest" meaningfully diverge for your specific users and network paths.`],related:["Load Balancing Algorithms (L4 vs L7)", "Active-Active vs Active-Passive", "DNS: How Domain Name Resolution Works"]},
 
 // ---------------- FINTECH-SPECIFIC ----------------
@@ -5483,7 +5561,11 @@ diagram:`<svg viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="35" y="266" fill="var(--red)" font-size="10.5" font-weight="600">Result: $160 actually left the account, but balance reads $20 — should read -$60.</text>
   <text x="35" y="280" fill="var(--text-dim)" font-size="9.5">The ledger of individual withdrawals is correct; only the derived balance field silently lost one update.</text>
 </svg>`,
-ex:`A wallet starts at $100. Request A and Request B are both withdrawal calls for $80, arriving milliseconds apart on two different application server instances. Both read the balance as $100 before either writes back. Both independently confirm "$100 is enough to cover $80." Both then write "new balance = $20." The second write wins — the database now shows $20, even though $160 total actually left the wallet. If this wallet also fed a Double-Entry Bookkeeping ledger (covered elsewhere) for the individual withdrawal entries, the ledger's transaction history would correctly show two $80 withdrawals — only the separately-stored current-balance field is wrong, which is exactly the kind of drift that Ledger Design's "balance as a derived value" approach exists to prevent.`,
+ex:`A wallet starts at $100. Request A and Request B are both withdrawal calls for $80, arriving milliseconds apart on two different application server instances.
+
+Both read the balance as $100 before either writes back. Both independently confirm "$100 is enough to cover $80." Both then write "new balance = $20." The second write wins — the database now shows $20, even though $160 total actually left the wallet.
+
+If this wallet also fed a Double-Entry Bookkeeping ledger (covered elsewhere) for the individual withdrawal entries, the ledger's transaction history would correctly show two $80 withdrawals — only the separately-stored current-balance field is wrong, which is exactly the kind of drift that Ledger Design's "balance as a derived value" approach exists to prevent.`,
 trade:[`Prevention, concretely, comes down to closing the read-check-write gap with one of two mechanisms (see Choosing Pessimistic vs Optimistic Locking, covered elsewhere) — for a hot wallet balance, pessimistic locking is usually the right call:
 
 Step 1 — Start a transaction and lock the row with intent to modify (\`SELECT balance FROM wallets WHERE id = ? FOR UPDATE\`), instead of a plain \`SELECT\`. This makes any second concurrent request wait, rather than reading the same stale value.
@@ -5539,7 +5621,11 @@ diagram:`<svg viewBox="0 0 620 220" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="pl-v" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--amber)"/></marker>
   </defs>
 </svg>`,
-ex:`An online retailer authorizes a customer's card for $50 the moment they check out — a hold is placed, no money moves. Two days later, when the order actually ships, the retailer captures the $50, and the real money movement happens now. If the customer cancels before the order ships, the retailer voids the original authorization instead — the hold is simply released, and no refund is ever issued because no capture ever happened. If the customer instead returns the item after delivery, after capture and settlement, the retailer processes a refund: a new transaction moving $50 back to the customer, tracked as its own separate entry in the ledger rather than as a cancellation of the original charge.`,
+ex:`An online retailer authorizes a customer's card for $50 the moment they check out — a hold is placed, no money moves. Two days later, when the order actually ships, the retailer captures the $50, and the real money movement happens now.
+
+If the customer cancels before the order ships, the retailer voids the original authorization instead — the hold is simply released, and no refund is ever issued because no capture ever happened.
+
+If the customer instead returns the item after delivery, after capture and settlement, the retailer processes a refund: a new transaction moving $50 back to the customer, tracked as its own separate entry in the ledger rather than as a cancellation of the original charge.`,
 trade:[`Confusing void with refund is a common, costly bug: calling a payment processor's refund API against an authorization that was never captured either fails outright, or on some processors silently does nothing useful, since the two operations run through completely different internal code paths on the processor's side.`,`An authorization hold isn't free to the customer even though no money technically moved — it reduces their available balance or credit limit for anywhere from a few hours to several days depending on the card network and issuing bank, which is a real, if temporary, source of confused customer support tickets ("why is my balance lower than my transaction history shows") that's worth designing for explicitly.`,`Reversal availability is narrow and time-sensitive, often only within the same settlement batch or business day, so it can't be the default cancellation path in application logic — refund has to be the fallback every system supports, with reversal treated as an optional, best-effort optimization when the timing happens to line up.`],related:["Chargebacks & Disputes", "Idempotency Keys in Payment APIs", "Settlement & Clearing (T+1/T+2)", "Double-Entry Bookkeeping"],priority:"high"},
 
 {cat:"FT", title:"Marketplace Payments: Split Payments & Escrow", def:`A marketplace or platform business sits between a buyer and one or more sellers — it collects money from the buyer, but it isn't the final recipient of most of it, which creates two distinct engineering problems beyond a normal two-party payment.
@@ -5577,7 +5663,9 @@ diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="mp-b" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--blue)"/></marker>
   </defs>
 </svg>`,
-ex:`A freelance services marketplace charges a client $100 for a completed project. The full $100 is held in escrow rather than released immediately. Once the client marks the work as accepted, or a defined review window passes without a dispute, the platform triggers a split payout: $85 to the freelancer, $15 retained as the platform's fee, executed through the payment processor's Connect-style API, which actually owns the regulated custody of the funds throughout, rather than the platform itself ever directly holding client money in its own bank account.`,
+ex:`A freelance services marketplace charges a client $100 for a completed project. The full $100 is held in escrow rather than released immediately.
+
+Once the client marks the work as accepted, or a defined review window passes without a dispute, the platform triggers a split payout: $85 to the freelancer, $15 retained as the platform's fee, executed through the payment processor's Connect-style API, which actually owns the regulated custody of the funds throughout, rather than the platform itself ever directly holding client money in its own bank account.`,
 trade:[`Holding customer funds before releasing them to the ultimate recipient is regulated differently, and often much more heavily, than simply passing a payment straight through — which is exactly why almost no platform builds this themselves from scratch, and instead configures an existing payment processor's marketplace product rather than treating it as a normal application feature to build in-house.`,`The escrow release trigger has to be genuinely reliable — releasing too early defeats the point of escrow entirely, since the buyer has no leverage if something goes wrong after release, while a bug in the "mark complete" or dispute-window logic that releases funds incorrectly creates real financial and support cost, not just an inconvenience.`,`Split percentages and fees need to be decided and locked in before the payment happens, not computed after the fact — recalculating a split retroactively, say after a promotional discount is applied, is a common source of reconciliation mismatches between what the platform's ledger says and what the payment processor's records say actually moved.`],related:["Ledger Design (Immutable Append-Only Ledger)", "Regulatory Compliance Basics (SOC 2, GDPR, KYC/AML)", "Double-Entry Bookkeeping"]},
 
 {cat:"FT", title:"Interest Calculation & Day-Count Conventions", def:`A day-count convention is a rule for how many days count as "a year," or a month, when calculating interest over a partial period — and different conventions produce genuinely different interest amounts for the exact same principal, rate, and calendar dates, which is why picking, and consistently applying, the right one matters.
@@ -5603,7 +5691,9 @@ diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="280" y="150" text-anchor="middle" fill="var(--text-faint)" font-size="10">Same principal, same rate, same calendar days — a $171.23 gap from the divisor alone</text>
   <text x="280" y="168" text-anchor="middle" fill="var(--text-faint)" font-size="9">That gap compounds across every payment, every account, for the life of the product</text>
 </svg>`,
-ex:`A commercial lender's system calculates monthly interest accrual using Actual/360 for a business line of credit, matching the convention specified in the loan agreement, while a separate consumer savings product on the same platform accrues interest using Actual/365. A junior engineer building a shared "calculate interest" utility function assumes one convention applies everywhere and hardcodes a 365 divisor — the business line of credit now silently under-calculates interest owed on every statement, a discrepancy that doesn't crash anything and isn't visible in any single transaction, but shows up months later as a material gap when finance reconciles accrued interest against the loan agreements.`,
+ex:`A commercial lender's system calculates monthly interest accrual using Actual/360 for a business line of credit, matching the convention specified in the loan agreement, while a separate consumer savings product on the same platform accrues interest using Actual/365.
+
+A junior engineer building a shared "calculate interest" utility function assumes one convention applies everywhere and hardcodes a 365 divisor — the business line of credit now silently under-calculates interest owed on every statement, a discrepancy that doesn't crash anything and isn't visible in any single transaction, but shows up months later as a material gap when finance reconciles accrued interest against the loan agreements.`,
 trade:[`A wrong day-count convention doesn't produce an obviously broken number — every individual calculation still looks like a plausible dollar amount, which is exactly why this bug class survives code review and manual QA, and is usually only caught by reconciliation against an independent source (the loan agreement terms, or a second system) or by property-based testing that checks the math against known reference values.`,`The convention has to be a property of the product, or even the individual contract, since some loan agreements negotiate a specific basis, not a system-wide constant — a platform serving multiple financial products needs this to be explicit, stored configuration, not an assumption baked into shared calculation code.`],related:["Modeling Money Correctly", "Multi-Currency Handling & Rounding", "Property-Based Testing for Financial Calculations"],priority:"high"},
 
 // ---------------- DB PERFORMANCE AT SCALE ----------------
@@ -5755,7 +5845,9 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
   <circle cx="510" cy="60" r="17" fill="var(--red)" fill-opacity="0.2" stroke="var(--red)" stroke-width="2"/>
   <text x="510" y="64" text-anchor="middle" fill="var(--red)" font-size="6.5">EU owns EU accts</text>
 </svg>`,
-ex:`A payments company serving Southeast Asia, Europe, and the US keeps each customer's account data owned by their home region (a Singapore customer's account always writes to the Singapore region, a German customer's always writes to the EU region) — satisfying local data-residency law and avoiding cross-region write conflicts at the same time. Meanwhile, read-only replicas of each region's data are placed near the other regions purely to make cross-region customer support lookups fast, clearly labeled as "may be a few seconds behind."`,
+ex:`A payments company serving Southeast Asia, Europe, and the US keeps each customer's account data owned by their home region (a Singapore customer's account always writes to the Singapore region, a German customer's always writes to the EU region) — satisfying local data-residency law and avoiding cross-region write conflicts at the same time.
+
+Meanwhile, read-only replicas of each region's data are placed near the other regions purely to make cross-region customer support lookups fast, clearly labeled as "may be a few seconds behind."`,
 trade:[
   `The simplest approach (single region) costs you nothing in engineering complexity but means far-away users always feel a slower app — often an acceptable trade-off until growth in that region justifies the investment.`,
   `Regional read replicas fix the "reads feel slow" problem cheaply, but you must decide, on a case-by-case basis, which reads can tolerate a few seconds of staleness (a transaction history list) versus which reads must go to the primary (checking if a payment can be approved right now).`,
@@ -5865,7 +5957,11 @@ diagram:`<svg viewBox="0 0 560 140" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="470" y="70" text-anchor="middle" fill="var(--ledger)" font-size="8">healthy</text>
   <text x="280" y="115" text-anchor="middle" fill="var(--text-faint)" font-size="9">Same code everywhere — only EU's replica lag explains the symptom</text>
 </svg>`,
-ex:`Customers in Europe report a transaction not showing up, while customers in the US see no problem. Checking replication lag shows the EU read-replica is 45 seconds behind its primary — much higher than the usual 1-2 seconds — because of a temporary network slowdown between two data centers. This isn't a code bug at all; it's a regional infrastructure issue, and the fix is investigating the network link and possibly routing that read to the primary temporarily, not searching through application code for a bug that doesn't exist there.`,
+ex:`Customers in Europe report a transaction not showing up, while customers in the US see no problem.
+
+Checking replication lag shows the EU read-replica is 45 seconds behind its primary — much higher than the usual 1-2 seconds — because of a temporary network slowdown between two data centers.
+
+This isn't a code bug at all; it's a regional infrastructure issue, and the fix is investigating the network link and possibly routing that read to the primary temporarily, not searching through application code for a bug that doesn't exist there.`,
 trade:[
   `Always confirm "which region(s)" before deep-diving into code — it's a 30-second check that can save hours of debugging application logic for what's actually a regional infrastructure or replication issue.`,
   `Trace IDs that follow a request across regions are far more reliable than comparing timestamps from different regions' logs, since clocks can differ slightly between regions even with time-sync services in place.`,
@@ -5964,7 +6060,9 @@ diagram:`<svg viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="430" y="82" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Readiness: irrelevant here</text>
   <text x="430" y="112" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Result: Kubernetes restarts the container</text>
 </svg>`,
-ex:`A payment service takes 15 seconds at startup to establish its database connection pool. Its readiness probe fails during those 15 seconds, so Kubernetes correctly holds back traffic until it's actually ready — but its liveness probe passes the whole time, since the process itself is running fine, just not ready yet. If these were reversed (liveness tied to database connectivity), Kubernetes might repeatedly restart a perfectly healthy container that just needs a few more seconds to finish starting up.`,
+ex:`A payment service takes 15 seconds at startup to establish its database connection pool. Its readiness probe fails during those 15 seconds, so Kubernetes correctly holds back traffic until it's actually ready — but its liveness probe passes the whole time, since the process itself is running fine, just not ready yet.
+
+If these were reversed (liveness tied to database connectivity), Kubernetes might repeatedly restart a perfectly healthy container that just needs a few more seconds to finish starting up.`,
 trade:[`Getting these two probes conceptually confused (or pointing both at the same check) is a common, subtle Kubernetes misconfiguration — it either causes unnecessary restart loops (liveness too strict) or sends traffic to a Pod that isn't actually ready to handle it (readiness missing or too lenient).`,`A good readiness probe should check things that specifically indicate "can I serve a request right now" (like a healthy DB connection), while a good liveness probe should check the much narrower question of "is this process fundamentally stuck" — an overly broad liveness check risks unnecessary restarts for problems a restart wouldn't even fix.`],related:["Container Orchestration (Kubernetes)", "Graceful Shutdown"]},
 
 {cat:"CC", title:"Graceful Shutdown", def:`When an orchestrator like Kubernetes needs to stop a container (during a deployment, a scale-down, or a node replacement), it doesn't just kill the process instantly — it sends a signal (typically SIGTERM) meaning "please finish up and shut down," and only forcibly kills the process (SIGKILL) if it hasn't stopped after a grace period.
@@ -6099,7 +6197,9 @@ diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-fami
   <text x="450" y="65" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">No memory carries over</text>
   <text x="450" y="80" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">between different instances</text>
 </svg>`,
-ex:`A function that processes an uploaded receipt image and extracts the transaction amount is a good serverless fit — it runs occasionally, in short bursts, and doesn't need to be "always on" waiting around between uploads. But this same serverless model is exactly what creates the connection-pooling exhaustion problem covered earlier in this guide — a sudden burst of uploads can spin up hundreds of function instances almost instantly, each potentially trying to open its own fresh database connection at the same time.`,
+ex:`A function that processes an uploaded receipt image and extracts the transaction amount is a good serverless fit — it runs occasionally, in short bursts, and doesn't need to be "always on" waiting around between uploads.
+
+But this same serverless model is exactly what creates the connection-pooling exhaustion problem covered earlier in this guide — a sudden burst of uploads can spin up hundreds of function instances almost instantly, each potentially trying to open its own fresh database connection at the same time.`,
 trade:[`Serverless removes a lot of operational burden (no servers to patch, automatic scaling, pay-per-use) and is a great fit for bursty, infrequent, or event-driven workloads, but cold starts add unpredictable latency that can be a real problem for latency-sensitive request paths, and the stateless requirement means you can't rely on the simple in-memory patterns (local caching, connection reuse across requests) that a long-running server could.`,`Not a universal replacement for traditional servers or containers — a service handling constant, high, predictable traffic often runs more cost-effectively and predictably on always-on containers (covered earlier) than as serverless functions.`],related:["Stateless vs Stateful Services (Twelve-Factor App Principles)", "Database Connection Pooling"]},
 
 {cat:"CC", title:"Service Mesh", def:`Once you have many microservices all calling each other, a lot of cross-cutting concerns come up repeatedly for every single service: encrypting traffic between services (mTLS, covered in the Security section), retrying failed calls, load balancing between instances, and collecting observability data about every call. A service mesh handles all of this at the infrastructure level, outside your application code, instead of every team having to implement it themselves inside every service.
@@ -6129,7 +6229,9 @@ diagram:`<svg viewBox="0 0 460 160" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="sm-a" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--amber)"/></marker>
   </defs>
 </svg>`,
-ex:`A company running 50 microservices adopts a service mesh (like Istio or Linkerd) so that every service automatically gets mTLS encryption between services, automatic retries on failed calls, and consistent request tracing — all without any individual team having to write that logic themselves inside their own service's code. When the security team wants to enforce "every service must use mTLS," they configure this once at the mesh level, rather than needing every one of the 50 teams to implement it independently and correctly.`,
+ex:`A company running 50 microservices adopts a service mesh (like Istio or Linkerd) so that every service automatically gets mTLS encryption between services, automatic retries on failed calls, and consistent request tracing — all without any individual team having to write that logic themselves inside their own service's code.
+
+When the security team wants to enforce "every service must use mTLS," they configure this once at the mesh level, rather than needing every one of the 50 teams to implement it independently and correctly.`,
 trade:[`Centralizes a lot of genuinely hard, easy-to-get-wrong cross-cutting concerns (mTLS, retries, observability) outside individual application code, which is a real win for consistency across many services and teams — but it adds a real operational and performance cost (every request now passes through an extra sidecar proxy hop) and a genuinely steep learning curve, similar to the trade-off already discussed for Kubernetes itself.`,`Usually only worth adopting once you have enough microservices that the cost of each team reimplementing these concerns independently clearly outweighs the mesh's own operational complexity — it's not a default choice for a small number of services.`],related:["Container Orchestration (Kubernetes)", "mTLS & Service-to-Service Auth", "Microservices vs SOA vs Monolith"],priority:"high"},
 
 {cat:"CC", title:"Blue-Green vs Canary Deployment", def:`Zero-Downtime Deployment (covered elsewhere) describes the general goal — never taking the service offline to release new code. Blue-green and canary are two different concrete strategies for actually achieving it, and they make very different trade-offs between safety and cost.
@@ -6238,7 +6340,9 @@ diagram:`<svg viewBox="0 0 560 210" xmlns="http://www.w3.org/2000/svg" font-fami
     <marker id="go-4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
   </defs>
 </svg>`,
-ex:`An on-call engineer, mid-incident, runs a manual command to bump replica count directly against the production payments service. A few minutes later the GitOps controller detects that the live cluster no longer matches what's declared in git and quietly reverts it back down — which is exactly the intended behavior, but only makes sense if the team knows to fix it properly (a merged pull request raising the replica count in git) instead of repeatedly fighting the controller with the same manual command.`,
+ex:`An on-call engineer, mid-incident, runs a manual command to bump replica count directly against the production payments service.
+
+A few minutes later the GitOps controller detects that the live cluster no longer matches what's declared in git and quietly reverts it back down — which is exactly the intended behavior, but only makes sense if the team knows to fix it properly (a merged pull request raising the replica count in git) instead of repeatedly fighting the controller with the same manual command.`,
 trade:[`A genuine production emergency sometimes needs an urgent, out-of-band change faster than "open a PR, get it reviewed, merge, wait for reconciliation" allows — teams need a deliberate, audited break-glass procedure for that case, or the controller will simply undo the emergency fix.`,`There's a real delay between "merged to git" and "actually running," since reconciliation happens on a loop rather than instantly — this can surprise teams used to a traditional pipeline that deploys the moment a build finishes.`,`Secrets can't just be committed to git in plaintext, so GitOps setups need a separate secrets-management integration (sealed secrets, an external vault) layered on top, adding its own operational complexity.`],related:["CI/CD Pipelines", "Infrastructure as Code (IaC)", "Blue-Green vs Canary Deployment"]},
 ];
 
@@ -6391,15 +6495,84 @@ function getRelatedTopics(t){
 function escapeHTML(str){
   return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
+// Known-good acronyms/initialisms that actually appear in this guide's content,
+// curated by scanning every def/ex/trade string and excluding false positives
+// (SQL keywords like WHERE/SELECT/UPDATE used in literal snippets, and plain
+// English words capitalized for emphasis like NOT/EVERY/DEFINITELY). A whitelist
+// is used instead of a blind "any all-caps word" regex specifically to avoid
+// those false positives without having to maintain a growing exclusion list.
+const ACRONYM_WHITELIST = new Set([
+  "ACH","ACID","ACK","AI","AML","ANALYZE","AP","APAC","API","APM","AWS","AZ","BASE","BI","BRIN",
+  "CA","CAP","CAS","CD","CDC","CDN","CI","CORS","CP","CPU","CQRS","CRDT","CRUD","CSRF","CSS","DB",
+  "DELETE","DI","DLQ","DNS","DOM","DR","DSS","ES","EU","EXPLAIN","FIDO2","FIFO","GC","GDPR","GET",
+  "GIN","HLC","HSM","HTML","HTTP","HTTPS","ID","ILM","IOPS","IP","ISP","JIT","JPY","JSON","JSONB",
+  "JWT","KMS","KYC","LLM","LSM","MAC","MD5","ML","MVCC","OIDC","OLAP","OLTP","OOP","OPTIONS","OS",
+  "OWASP","PATCH","PCI","PII","PIN","PITR","POST","PR","PT","PUT","QA","QUIC","RAG","RAM","RED",
+  "REST","RPO","RS","RTO","RTP","SDK","SHA","SIGKILL","SIGTERM","SLA","SLI","SLO","SMS","SOA",
+  "SOC","SOLID","SQL","SQS","SSD","SSE","SYN","TCP","TDD","TLS","TPS","TTL","UDP","UI","URL","US",
+  "USD","UUID","UX","VM","VPC","VPN","XSS"
+]);
+function highlightAcronyms(escaped){
+  // operates on already-escaped HTML text; wraps whitelisted whole-word acronyms
+  // in a coloring span. Color itself comes from CSS based on which card (.def/.ex/.trade)
+  // the span ends up inside, so the same helper works everywhere.
+  return escaped.replace(/\b[A-Z]{2,}[A-Z0-9]*\b/g, m => ACRONYM_WHITELIST.has(m) ? `<span class="acro">${m}</span>` : m);
+}
 function formatText(text){
   // splits on blank lines into separate <p> blocks, and single newlines into <br> within a block
   return text.split(/\n\s*\n/).map(block=>{
-    return "<p>" + block.split("\n").map(line=>escapeHTML(line)).join("<br>") + "</p>";
+    return "<p>" + block.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>") + "</p>";
+  }).join("");
+}
+function formatDef(text){
+  // like formatText, but paragraphs that open with a short "Term — description"
+  // pattern (the project's established convention for enumerated sub-concepts)
+  // get the term bolded, the rest dimmed, and a left rule for visual rhythm.
+  // Acronym-looking leading terms (all-caps token, 2+ chars) get colored too.
+  return text.split(/\n\s*\n/).map(block=>{
+    const m = block.match(/^([^\n]{1,45}?) — ([\s\S]+)$/);
+    if(m){
+      const term = m[1];
+      const rest = m[2];
+      const words = term.trim().split(/\s+/);
+      const hasSentencePunct = /[.!?;:]/.test(term);
+      if(words.length <= 4 && !hasSentencePunct){
+        const first = words[0];
+        const isAcronym = words.length === 1
+          ? /^[A-Z][A-Z0-9]*$/.test(first)
+          : (first.length >= 2 && /^[A-Z][A-Z0-9]*$/.test(first));
+        const termHTML = escapeHTML(term);
+        const restHTML = rest.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>");
+        return `<p class="term-line"><span class="term-label${isAcronym ? ' acronym' : ''}">${termHTML}</span> — <span class="term-desc">${restHTML}</span></p>`;
+      }
+    }
+    return "<p>" + block.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>") + "</p>";
   }).join("");
 }
 function formatInline(text){
   // for list items: keep on one flow but still respect explicit line breaks
-  return text.split("\n").map(line=>escapeHTML(line)).join("<br>");
+  return text.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>");
+}
+function formatTrade(items){
+  // Trade-offs are most readable when the upside and the actual cost are visually
+  // separated instead of buried in one dense sentence. Where an item already has a
+  // clean "X, but Y" (or however/though/instead/unless) pivot, split it into two
+  // lines with the pivot word called out — mirroring the def section's bold-term/
+  // dim-rest treatment. Items without a clean pivot render as before (still gets
+  // acronym highlighting) rather than force an artificial break.
+  return items.map(text=>{
+    const m = text.match(/^([\s\S]*?)[,;—] (but|however|though|instead|unless) ([\s\S]+)$/);
+    if(m){
+      const upside = m[1];
+      const pivot = m[2];
+      const downside = m[3];
+      const pivotCap = pivot.charAt(0).toUpperCase() + pivot.slice(1);
+      const upsideHTML = upside.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>");
+      const downsideHTML = downside.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>");
+      return `<li class="trade-line"><span class="trade-up">${upsideHTML}</span><br><span class="trade-down"><span class="trade-pivot">${pivotCap}</span> ${downsideHTML}</span></li>`;
+    }
+    return `<li>${formatInline(text)}</li>`;
+  }).join("");
 }
 
 function catInfo(code){ return CATEGORIES.find(c=>c.code===code); }
@@ -6646,11 +6819,11 @@ function renderRecall(){
       ${recallRevealed ? `
         <div class="card def">
           <div class="card-label">Definition</div>
-          ${formatText(t.def)}
+          ${formatDef(t.def)}
         </div>
         <div class="card trade">
           <div class="card-label">Trade-offs</div>
-          <ul>${t.trade.map(x=>`<li>${formatInline(x)}</li>`).join('')}</ul>
+          <ul>${formatTrade(t.trade)}</ul>
         </div>
         <div class="recall-actions">
           <button class="recall-btn again" id="recall-again-single">Review again later</button>
@@ -6712,7 +6885,7 @@ function selectTopic(id){
       </div>
       <div class="card def">
         <div class="card-label">Definition</div>
-        ${formatText(t.def)}
+        ${formatDef(t.def)}
       </div>
       ${t.diagram ? `<div class="card diagram">
         <div class="card-label">Diagram</div>
@@ -6724,7 +6897,7 @@ function selectTopic(id){
       </div>
       <div class="card trade">
         <div class="card-label">Trade-offs</div>
-        <ul>${t.trade.map(x=>`<li>${formatInline(x)}</li>`).join('')}</ul>
+        <ul>${formatTrade(t.trade)}</ul>
       </div>
       ${t.code ? `<div class="card code">
         <div class="card-label">Code Example (Go)</div>
