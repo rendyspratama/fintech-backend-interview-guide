@@ -2269,33 +2269,69 @@ ex:`A fintech company wants customer support agents to search through millions o
 Their main Postgres database can technically do a text search, but it's slow and limited at that scale. So transaction records are also copied into an Elasticsearch index, purpose-built for this kind of fast, flexible search — while Postgres remains the actual source of truth for the transaction data itself.`,
 trade:[`Elasticsearch is excellent at search and analytics, but it's generally not meant to be your primary system of record for critical transactional data — it has weaker consistency and transaction guarantees than a relational database, so the common pattern is: keep your real source of truth in a proper database, and sync a copy into Elasticsearch (often via CDC, covered earlier in this guide) purely for search and analytics.`],related:["How Elasticsearch Achieves Fast Reads (Inverted Index)"]},
 
-{cat:"DB", title:"How Elasticsearch Achieves Fast Reads (Inverted Index)", def:`A regular database, searching for "find all rows where the description contains the word refund," often has to scan through rows checking each one — slow at scale unless you have a very specific kind of index built for exactly that phrase, which is hard to do for free-text search.
+{cat:"DB", title:"How Elasticsearch Achieves Fast Reads (Inverted Index)", def:`A regular database scanning for "does the description contain the word refund" has to check row by row — slow at scale for free-text search, where the query could be almost any word.
 
-Elasticsearch instead builds something called an inverted index. Instead of storing "this document contains these words" (a normal, forward way of thinking about it), it flips it around and stores "this word appears in these documents." So when you search for the word "refund," Elasticsearch doesn't scan every document — it just looks up "refund" directly in this reversed index and instantly gets the list of matching documents back.
+Elasticsearch avoids that scan using four techniques stacked together:
 
-A few other things that contribute to Elasticsearch's speed:
+1. Inverted index — flips "document → words" into "word → documents." Looking up "refund" becomes a direct lookup, not a scan, the same way a book's index beats reading every page.
 
-It's built for reading, and does a lot of work upfront at write time (breaking text into searchable words, building the inverted index) so that the read/search itself stays cheap.
+2. Work happens at write time, not read time. The inverted index gets built once, when data is written. Every search afterward just reuses it — no rebuilding, ever.
 
-Data is distributed across multiple shards (see the next topic) so a single search can be run in parallel across many machines at once, and the partial results are combined at the end.
+3. Shards run the search in parallel. A large index is split across many machines. One search hits every shard at once, and the partial results merge at the end — total time tracks the slowest shard, not a full sequential scan.
 
-It keeps frequently-used data structures cached in memory, and uses a "near real-time" model — new writes become searchable within about a second, not instantly, which is a deliberate trade-off that keeps both writes and reads fast.`,
-diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
-  <text x="130" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Forward (documents → words)</text>
-  <rect x="30" y="30" width="200" height="24" fill="var(--panel)" stroke="var(--border)"/>
-  <text x="130" y="46" text-anchor="middle" fill="var(--text-dim)" font-size="8">doc1: "refund order dispute"</text>
-  <rect x="30" y="58" width="200" height="24" fill="var(--panel)" stroke="var(--border)"/>
-  <text x="130" y="74" text-anchor="middle" fill="var(--text-dim)" font-size="8">doc2: "order shipped"</text>
-  <text x="130" y="98" text-anchor="middle" fill="var(--text-faint)" font-size="8">finding "refund" means scanning every doc</text>
+4. Hot data lives in memory. Frequently-used index structures skip disk entirely on a read. The cost: a write isn't searchable for about 1 second — the "near real-time" delay — a deliberate trade that keeps writes cheap too.`,
+diagram:`<svg viewBox="0 0 560 325" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="120" y="8" width="320" height="38" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="280" y="26" text-anchor="middle" fill="var(--text)" font-size="9">Search: memo contains "refund"</text>
+  <text x="280" y="40" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">across 50,000,000 transaction records</text>
 
-  <text x="440" y="18" text-anchor="middle" fill="var(--ledger)" font-size="10.5" font-weight="600">Inverted (words → documents)</text>
-  <rect x="330" y="30" width="220" height="24" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)"/>
-  <text x="440" y="46" text-anchor="middle" fill="var(--ledger)" font-size="8">"refund" → [doc1]</text>
-  <rect x="330" y="58" width="220" height="24" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)"/>
-  <text x="440" y="74" text-anchor="middle" fill="var(--ledger)" font-size="8">"order" → [doc1, doc2]</text>
-  <text x="440" y="98" text-anchor="middle" fill="var(--ledger)" font-size="8">direct lookup — no scanning needed</text>
+  <line x1="280" y1="46" x2="280" y2="65" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+
+  <rect x="120" y="68" width="320" height="42" rx="6" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="280" y="87" text-anchor="middle" fill="var(--ledger)" font-size="9" font-weight="600">1. Direct lookup in the inverted index</text>
+  <text x="280" y="102" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">"refund" → [txn_4521, txn_8832, txn_9107, …]</text>
+
+  <text x="280" y="128" text-anchor="middle" fill="var(--text-faint)" font-size="8">2 &amp; 3. Already built — fans out across shards, searched in parallel</text>
+
+  <line x1="280" y1="136" x2="75" y2="158" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="280" y1="136" x2="215" y2="158" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="280" y1="136" x2="355" y2="158" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="280" y1="136" x2="495" y2="158" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+
+  <rect x="20" y="160" width="110" height="64" rx="5" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="1.5"/>
+  <text x="75" y="181" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">Shard 1 · ~12.5M</text>
+  <text x="75" y="197" text-anchor="middle" fill="var(--amber)" font-size="7">4. in-memory ✓</text>
+  <text x="75" y="212" text-anchor="middle" fill="var(--text-dim)" font-size="7">58 matches</text>
+
+  <rect x="160" y="160" width="110" height="64" rx="5" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="1.5"/>
+  <text x="215" y="181" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">Shard 2 · ~12.5M</text>
+  <text x="215" y="197" text-anchor="middle" fill="var(--amber)" font-size="7">4. in-memory ✓</text>
+  <text x="215" y="212" text-anchor="middle" fill="var(--text-dim)" font-size="7">71 matches</text>
+
+  <rect x="300" y="160" width="110" height="64" rx="5" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="1.5"/>
+  <text x="355" y="181" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">Shard 3 · ~12.5M</text>
+  <text x="355" y="197" text-anchor="middle" fill="var(--amber)" font-size="7">4. in-memory ✓</text>
+  <text x="355" y="212" text-anchor="middle" fill="var(--text-dim)" font-size="7">54 matches</text>
+
+  <rect x="440" y="160" width="110" height="64" rx="5" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="1.5"/>
+  <text x="495" y="181" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">Shard 4 · ~12.5M</text>
+  <text x="495" y="197" text-anchor="middle" fill="var(--amber)" font-size="7">4. in-memory ✓</text>
+  <text x="495" y="212" text-anchor="middle" fill="var(--text-dim)" font-size="7">64 matches</text>
+
+  <line x1="75" y1="224" x2="280" y2="249" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="215" y1="224" x2="280" y2="249" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="355" y1="224" x2="280" y2="249" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+  <line x1="495" y1="224" x2="280" y2="249" stroke="var(--border)" stroke-width="1.5" marker-end="url(#esArr)"/>
+
+  <rect x="130" y="253" width="300" height="46" rx="6" fill="var(--ledger)" fill-opacity="0.2" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="280" y="273" text-anchor="middle" fill="var(--ledger)" font-size="10" font-weight="700">247 matches merged — ~8ms total</text>
+  <text x="280" y="289" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">shard results combined into one response</text>
+
+  <text x="280" y="315" text-anchor="middle" fill="var(--text-faint)" font-size="8">Nothing here scans 50M rows — the index was already built, at write time</text>
+
+  <defs><marker id="esArr" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--border)"/></marker></defs>
 </svg>`,
-ex:`Searching for every transaction where the memo field contains the word "refund" across 50 million records returns in well under a second, because Elasticsearch already has a pre-built inverted index mapping "refund" directly to every matching document — instead of having to check the memo field of all 50 million records one by one, the way a naive full-table text scan would.`,
+ex:`A fraud analyst searches 50,000,000 transaction records for any memo containing "refund." Elasticsearch looks "refund" up directly in the pre-built inverted index (step 1, already built — step 2), fans the search across 4 shards running in parallel (step 3), each checking its own hot in-memory index structures (step 4), and merges 247 matches back in about 8 milliseconds — no row-by-row scan of 50 million records ever happens.`,
 trade:[`This design makes Elasticsearch extremely fast for search and read-heavy workloads, but the upfront indexing work at write time means writes are relatively more expensive than in a plain key-value or relational insert — Elasticsearch is optimized for "search often, write less often" access patterns, not for extremely high-frequency single-row updates.`],related:["Elasticsearch: What It Is & Core Components", "Index Types: B-Tree vs Hash vs LSM-Tree vs GIN vs BRIN"]},
 
 {cat:"DB", title:"Elasticsearch Indexing Pipeline: Analyzers & Tokenizers", def:`This is the actual process that happens at write time to turn raw text into the fast, searchable inverted index described above. Every piece of text goes through an "analyzer," which is really three steps chained together.
@@ -2711,7 +2747,83 @@ diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A fintech company's core ledger database (OLTP) handles thousands of individual transaction writes per second. Their finance team's monthly "revenue by region" report used to run directly against that same database, occasionally causing real transaction processing to slow down during report generation.
 
 Moving that reporting workload to a separate data warehouse (OLAP), fed by a nightly (or CDC-streamed) copy of the ledger data, completely isolates the two — the heavy analytical query can no longer interfere with real-time payment processing at all.`,
-trade:[`Keeping OLTP and OLAP workloads separate adds real infrastructure (a second system, and a way to keep it in sync — often via CDC, covered earlier in this guide), but protects your core transactional system from being destabilized by analytical query load, which is a serious operational risk if ignored.`,`OLAP-oriented systems are often built on genuinely different underlying storage technology (columnar storage, which stores each column's data together instead of each row together) specifically because it makes "scan and aggregate one column across millions of rows" dramatically faster than a row-oriented OLTP database can manage — a real example of picking storage technology to match the actual access pattern.`],related:["SQL vs NoSQL vs NewSQL", "Scaling a Database Globally (Users Across Many Countries)"],priority:"high"},
+trade:[`Keeping OLTP and OLAP workloads separate adds real infrastructure (a second system, and a way to keep it in sync — often via CDC, covered earlier in this guide), but protects your core transactional system from being destabilized by analytical query load, which is a serious operational risk if ignored.`,`OLAP-oriented systems are often built on genuinely different underlying storage technology (columnar storage, which stores each column's data together instead of each row together) specifically because it makes "scan and aggregate one column across millions of rows" dramatically faster than a row-oriented OLTP database can manage — a real example of picking storage technology to match the actual access pattern.`],related:["SQL vs NoSQL vs NewSQL", "Scaling a Database Globally (Users Across Many Countries)", "Data Warehouse vs Data Lake (vs Lakehouse)", "ETL vs ELT (Moving Data from Online to Offline)"],priority:"high"},
+
+{cat:"DB", title:"Data Warehouse vs Data Lake (vs Lakehouse)", def:`Two different places to put data once it's moved out of a live transactional system for analytics (see OLTP vs OLAP), with different trade-offs for how structured the data needs to be before it's useful.
+
+Data warehouse — stores structured, already-cleaned data in a defined schema, built specifically for fast analytical queries (the columnar storage covered in OLTP vs OLAP). You decide the schema and transform the data to fit it before it goes in — "schema-on-write." This is what most traditional BI dashboards and finance reporting query directly.
+
+Data lake — stores raw data in whatever format it originally came in (JSON, CSV, logs, even unstructured files), cheaply, without deciding a schema upfront. The schema gets applied later, at query time, by whatever's reading it — "schema-on-read." This is the right fit when you're not yet sure how the data will be used, or when different consumers need to interpret the same raw data differently.
+
+Lakehouse — a newer, increasingly common middle ground: keeps a data lake's cheap, flexible raw storage, but adds warehouse-style structure, transactions, and query performance on top of it, so you don't have to fully commit to one model or the other.
+
+The practical decision usually comes down to how well-defined the analytical use case already is: a known, recurring report (revenue by region, every month) fits a data warehouse's structure well; open-ended exploration, machine learning feature pipelines, or data you're capturing "just in case it's useful later" fits a data lake's flexibility better.`,
+diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="30" width="160" height="110" rx="8" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="100" y="50" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Data Warehouse</text>
+  <rect x="35" y="60" width="130" height="16" fill="var(--ledger)" fill-opacity="0.3"/>
+  <rect x="35" y="80" width="130" height="16" fill="var(--ledger)" fill-opacity="0.3"/>
+  <rect x="35" y="100" width="130" height="16" fill="var(--ledger)" fill-opacity="0.3"/>
+  <text x="100" y="125" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">structured, schema-on-write</text>
+
+  <rect x="200" y="30" width="160" height="110" rx="8" fill="var(--amber)" fill-opacity="0.1" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="280" y="50" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Data Lake</text>
+  <rect x="215" y="60" width="60" height="14" fill="var(--amber)" fill-opacity="0.25"/>
+  <rect x="285" y="78" width="60" height="20" fill="var(--amber)" fill-opacity="0.25"/>
+  <rect x="220" y="102" width="45" height="12" fill="var(--amber)" fill-opacity="0.25"/>
+  <rect x="290" y="60" width="45" height="18" fill="var(--amber)" fill-opacity="0.25"/>
+  <text x="280" y="125" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">raw, schema-on-read</text>
+
+  <rect x="380" y="30" width="160" height="110" rx="8" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="2"/>
+  <text x="460" y="50" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="700">Lakehouse</text>
+  <rect x="395" y="60" width="130" height="16" fill="var(--blue)" fill-opacity="0.25"/>
+  <rect x="400" y="82" width="60" height="14" fill="var(--blue)" fill-opacity="0.2"/>
+  <rect x="465" y="82" width="55" height="18" fill="var(--blue)" fill-opacity="0.2"/>
+  <text x="460" y="125" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">raw storage + structure on top</text>
+
+  <text x="280" y="165" text-anchor="middle" fill="var(--text-faint)" font-size="9">Known, recurring reports → warehouse. Open-ended or uncertain use → lake.</text>
+</svg>`,
+ex:`A fintech's finance team needs the same "revenue by region" report every month — that recurring, well-defined query lives in a data warehouse with a clean, structured schema built for exactly that kind of aggregation. The same company's fraud team dumps raw, unstructured event logs from every service into a data lake, because they don't yet know which fields will end up mattering for a future fraud model, and reprocessing raw data later is much easier than having thrown away anything that didn't fit a predefined schema.`,
+trade:[`A data warehouse's structure makes known queries fast and reliable, but that same structure is expensive to change — adding a genuinely new kind of analysis later can mean a real schema migration, not just a new query.`,`A data lake's flexibility means nothing is thrown away or forced into a schema too early, but without real discipline (naming conventions, metadata, ownership) it can quietly turn into a "data swamp" — a pile of raw files nobody can confidently make sense of anymore.`],related:["OLTP vs OLAP", "ETL vs ELT (Moving Data from Online to Offline)", "Change Data Capture (CDC)"]},
+
+{cat:"DB", title:"ETL vs ELT (Moving Data from Online to Offline)", def:`The actual mechanics of getting data out of a live transactional (OLTP) system and into an offline analytical system (a data warehouse or data lake) — the "when do I move data from online to offline" question, answered concretely.
+
+ETL (Extract, Transform, Load) — pull the data out, clean and reshape it into its final structure first, then load only the finished result into the destination. The destination only ever holds ready-to-query data, but the transformation logic has to be fully decided upfront, before you know every way the data might eventually get used.
+
+ELT (Extract, Load, Transform) — pull the data out, load it into the destination in something close to its raw form first, and transform it afterward, inside the destination system itself, using its own compute. This fits a data lake's philosophy well: keep the raw data around, and decide how to reshape it later, possibly more than once, for different purposes.
+
+Both can run in two different rhythms: a scheduled batch job (a nightly extract, often the simplest starting point) or a continuous stream fed by Change Data Capture (covered elsewhere), which moves each change over close to the moment it happens instead of waiting for the next scheduled run. The batch-vs-streaming choice here is really the same "how fresh does offline data need to be" trade-off covered in RTO vs RPO, just applied to analytics instead of disaster recovery.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="16" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">ETL — transform before loading</text>
+  <rect x="20" y="30" width="70" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="55" y="53" text-anchor="middle" fill="var(--text)" font-size="8">Extract</text>
+  <line x1="90" y1="50" x2="115" y2="50" stroke="var(--border)" stroke-width="1.5" marker-end="url(#etlA)"/>
+  <rect x="120" y="30" width="80" height="40" rx="5" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="2"/>
+  <text x="160" y="53" text-anchor="middle" fill="var(--text)" font-size="8">Transform</text>
+  <line x1="200" y1="50" x2="225" y2="50" stroke="var(--border)" stroke-width="1.5" marker-end="url(#etlA)"/>
+  <rect x="230" y="30" width="70" height="40" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="265" y="53" text-anchor="middle" fill="var(--text)" font-size="8">Load</text>
+  <text x="160" y="88" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">destination only holds finished data</text>
+
+  <text x="420" y="16" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">ELT — transform after loading</text>
+  <rect x="330" y="30" width="70" height="40" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="365" y="53" text-anchor="middle" fill="var(--text)" font-size="8">Extract</text>
+  <line x1="400" y1="50" x2="425" y2="50" stroke="var(--border)" stroke-width="1.5" marker-end="url(#etlA)"/>
+  <rect x="430" y="30" width="70" height="40" rx="5" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="465" y="53" text-anchor="middle" fill="var(--text)" font-size="8">Load</text>
+  <line x1="465" y1="70" x2="465" y2="95" stroke="var(--border)" stroke-width="1.5" marker-end="url(#etlB)"/>
+  <rect x="410" y="100" width="110" height="40" rx="5" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="465" y="117" text-anchor="middle" fill="var(--text)" font-size="7.5">Transform</text>
+  <text x="465" y="129" text-anchor="middle" fill="var(--text-dim)" font-size="6.5">inside destination</text>
+  <text x="420" y="158" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">raw data also stays available for reuse</text>
+
+  <defs>
+    <marker id="etlA" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--border)"/></marker>
+    <marker id="etlB" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--border)"/></marker>
+  </defs>
+</svg>`,
+ex:`A payments company runs a nightly ETL job that extracts yesterday's transactions from the ledger, transforms them into the exact structure the finance team's monthly report expects, and loads only that finished result into the warehouse. Separately, their data science team uses ELT, loading raw event data into a data lake as-is via CDC-streamed changes, and transforming it differently for each new model they build, without having decided upfront exactly how every field would eventually be used.`,
+trade:[`ETL keeps the destination clean and immediately query-ready, but changing the transformation logic later — because a new report needs a field that was dropped or reshaped away — often means re-processing history, not just adjusting one query.`,`ELT keeps all the raw data available for reuse, but it pushes real compute cost and complexity into the destination system itself, and "transform later" only works if someone actually goes back and does it — otherwise it's just a data lake full of untransformed, hard-to-use data.`],related:["OLTP vs OLAP", "Data Warehouse vs Data Lake (vs Lakehouse)", "Change Data Capture (CDC)", "RTO vs RPO"]},
 
 {cat:"DB", title:"Bloom Filters", def:`A probabilistic data structure that answers one specific question extremely quickly and with very little memory: "is this value DEFINITELY NOT in this dataset, or might it possibly be?" It can never give a false "definitely not in there" — but it can occasionally give a false "might be in there" for a value that actually isn't (a "false positive"). It never produces a false negative.
 
