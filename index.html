@@ -4295,6 +4295,42 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A stream of `+"`TransactionCompleted`"+` events that multiple independent consumers (ledger, fraud, notifications, analytics) each need to read at their own pace, with replay capability for reprocessing, fits Kafka well. A simple background job queue for sending receipts fits SQS or RabbitMQ without needing Kafka's operational complexity.`,
 trade:[`Kafka gives replay and high throughput but has real operational complexity (partitioning, consumer group management, retention tuning).`,`SQS is easiest to operate (managed) but lacks replay and has weaker ordering guarantees (standard queues) unless you use FIFO queues, which cap throughput.`,`Choosing the simplest tool that meets the actual requirement (replay? ordering? multiple independent consumers?) beats defaulting to Kafka for everything.`],related:["Kafka Partitioning & Ordering", "Dead Letter Queue (DLQ)"],priority:"high"},
 
+{cat:"MA", title:"Deferred / Delayed Message Delivery in Message Queues", def:`A normal queued message is available to a consumer as soon as it's published. A deferred (or delayed) message is deliberately held back — it sits in the queue but isn't delivered to any consumer until a specified future time, even though nothing is actually wrong with it.
+
+This is different from a Dead Letter Queue (DLQ, covered elsewhere), which holds messages that failed processing. A delay is intentional and expected from the start; a DLQ entry is a failure being set aside for investigation.
+
+Most managed queues support this directly — SQS lets you set a delivery delay per message (or per queue), and RabbitMQ needs a delayed-message plugin or a manually-built "wait queue with a TTL (time-to-live), then dead-letter into the real queue" pattern, since delay isn't built in natively.
+
+The most common use is scheduling a single future action without standing up a full cron-based scheduler: "check back on this order in 15 minutes and cancel it if it's still unconfirmed," or spacing out retry attempts with a growing delay (see Retry with Backoff & Jitter) instead of retrying immediately.`,
+diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="55" width="90" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="65" y="84" text-anchor="middle" fill="var(--text)" font-size="9">Producer</text>
+
+  <line x1="110" y1="80" x2="160" y2="80" stroke="var(--border)" stroke-width="2" marker-end="url(#dqA)"/>
+
+  <rect x="165" y="45" width="150" height="70" rx="6" fill="var(--amber)" fill-opacity="0.15" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="240" y="70" text-anchor="middle" fill="var(--amber)" font-size="9" font-weight="600">Delay buffer</text>
+  <text x="240" y="86" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">invisible to consumers</text>
+  <text x="240" y="98" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">until the delay elapses</text>
+
+  <line x1="315" y1="80" x2="365" y2="80" stroke="var(--ledger)" stroke-width="2" marker-end="url(#dqB)"/>
+  <text x="340" y="70" text-anchor="middle" fill="var(--ledger)" font-size="8">delay elapses</text>
+
+  <rect x="370" y="55" width="90" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="415" y="76" text-anchor="middle" fill="var(--text)" font-size="9">Queue</text>
+  <text x="415" y="90" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">now visible</text>
+
+  <line x1="460" y1="80" x2="510" y2="80" stroke="var(--border)" stroke-width="2" marker-end="url(#dqA)"/>
+  <text x="490" y="100" text-anchor="middle" fill="var(--text-faint)" font-size="8">Consumer</text>
+
+  <defs>
+    <marker id="dqA" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker>
+    <marker id="dqB" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+  </defs>
+</svg>`,
+ex:`A checkout service publishes a message when a customer starts checkout, delayed 15 minutes, that checks whether the order was actually confirmed and paid — if not, it automatically releases the reserved inventory. No separate scheduler process needs to run continuously watching a clock; the queue itself holds the message until it's actually due.`,
+trade:[`A delayed message is much simpler to reason about than running a separate scheduled polling job for the same purpose, but the maximum delay is usually capped by the broker (SQS caps at 15 minutes per message, for example), so it's not a substitute for scheduling something days or weeks out.`,`It moves timing logic out of application code and into infrastructure configuration, which is convenient, but a delayed message is easy to lose track of during debugging — it can look like a message that simply never arrived, when it's actually just sitting in the delay buffer as designed.`],related:["Kafka vs RabbitMQ vs SQS", "Dead Letter Queue (DLQ)", "Retry with Backoff & Jitter", "Cron vs Webhook vs Message Queue (How Work Actually Gets Triggered)"]},
+
 {cat:"MA", title:"Kafka Partitioning & Ordering", def:`Kafka only guarantees message ordering *within* a partition, not across the whole topic. The partition key determines which partition a message lands in — messages with the same key always go to the same partition, preserving their relative order.`,
 diagram:`<svg viewBox="0 0 460 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
   <text x="230" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Topic: transactions (partitioned by account_id)</text>
@@ -4471,6 +4507,39 @@ diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A customer-support backend calls an LLM API to draft a response about a disputed charge. The model's suggested action ("issue a refund of $42") is never executed directly — it's passed through a strictly scoped tool-call schema that only allows requesting a refund within a pre-approved range, and anything outside that range routes to a human for approval, so a successful prompt injection in the customer's message can't move money on its own.`,
 trade:[`Unpredictable latency and per-call cost make it much harder to give a hard SLA than for a typical internal service call — usage spikes translate directly into a variable bill, not just variable performance.`,`Non-determinism complicates testing: you can't assert on an exact output the way you would for a pure function, so tests typically have to check for looser properties (does the response contain a required field, does it avoid a banned phrase) instead.`,`Any action the model's output can trigger needs its own independent validation layer — trusting model output directly to decide something consequential (like a refund amount) turns a prompt injection into a real financial exposure, not just a bad chatbot reply.`],related:["Rate Limiting Algorithms", "Circuit Breaker", "Idempotency & Exactly-Once Delivery", "RAG & Vector Databases"]},
 
+{cat:"MA", title:"Cron Jobs (Scheduled Task Execution)", def:`A cron job is a task that runs automatically on a fixed, recurring time-based schedule — every night at 2 AM, every 15 minutes, the first of every month — instead of being triggered by an event or a person. The name comes from cron, the original Unix scheduler, but the same pattern shows up in every cloud provider's scheduled-job service today.
+
+This is the natural fit for work that genuinely runs on a clock rather than in response to something happening — nightly reconciliation between a ledger and a payment processor's records, or generating a daily settlement report on a fixed cadence.
+
+Two failure modes matter more here than for most other kinds of jobs. If the scheduler itself is down at the moment a job was supposed to fire, most basic cron setups simply skip that run — there's no automatic catch-up unless you specifically build one. And if a job takes longer to run than the interval between runs, the next scheduled run can start while the previous one is still going, corrupting results unless the job is built to either lock against overlapping runs or tolerate running twice (the same idempotency discipline used elsewhere in this guide).`,
+diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <line x1="30" y1="100" x2="530" y2="100" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="280" y="20" text-anchor="middle" fill="var(--text-faint)" font-size="9">Fixed schedule — every 30 minutes</text>
+
+  <circle cx="90" cy="100" r="5" fill="var(--ledger)"/>
+  <rect x="60" y="70" width="60" height="22" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="1.5"/>
+  <text x="90" y="85" text-anchor="middle" fill="var(--text)" font-size="7.5">Run 1</text>
+
+  <circle cx="230" cy="100" r="5" fill="var(--ledger)"/>
+  <rect x="200" y="70" width="60" height="22" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="1.5"/>
+  <text x="230" y="85" text-anchor="middle" fill="var(--text)" font-size="7.5">Run 2</text>
+
+  <circle cx="370" cy="100" r="5" fill="var(--amber)"/>
+  <rect x="340" y="70" width="110" height="22" rx="4" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="1.5"/>
+  <text x="395" y="85" text-anchor="middle" fill="var(--text)" font-size="7.5">Run 3 still running…</text>
+
+  <circle cx="510" cy="100" r="5" fill="var(--red)"/>
+  <text x="510" y="120" text-anchor="middle" fill="var(--red)" font-size="8" font-weight="600">Run 4 starts</text>
+  <text x="510" y="132" text-anchor="middle" fill="var(--red)" font-size="8" font-weight="600">while Run 3 overlaps</text>
+
+  <line x1="90" y1="100" x2="90" y2="106" stroke="var(--text-faint)" stroke-width="1"/>
+  <line x1="230" y1="100" x2="230" y2="106" stroke="var(--text-faint)" stroke-width="1"/>
+  <line x1="370" y1="100" x2="370" y2="106" stroke="var(--text-faint)" stroke-width="1"/>
+  <line x1="510" y1="100" x2="510" y2="106" stroke="var(--text-faint)" stroke-width="1"/>
+</svg>`,
+ex:`A fintech runs a cron job every night at 1 AM that reconciles the previous day's ledger entries against the payment processor's settlement file, flagging any mismatch for a human to review before the books are closed for that day. When the reconciliation job occasionally runs long during a high-volume month, the team adds a distributed lock so the next night's run refuses to start until the previous one has actually finished, instead of two reconciliation runs racing against the same data.`,
+trade:[`Cron is simple and requires no external event to trigger it, but a missed run due to scheduler downtime is silent by default — nobody finds out reconciliation didn't happen last night unless something else specifically checks for that and alerts on it.`,`For anything with real dependencies between steps (run A, then B only if A succeeded, retry just the failed step), plain cron becomes awkward fast — that's usually the point where teams move to a proper workflow orchestrator instead of chaining more cron jobs together.`],related:["Cron vs Webhook vs Message Queue (How Work Actually Gets Triggered)", "Idempotency & Exactly-Once Delivery", "Deferred / Delayed Message Delivery in Message Queues"]},
+
 {cat:"MA", title:"Webhooks: Delivery, Retries & Signature Verification", def:`A webhook is a way for one system to notify another about an event by making an HTTP POST request to a URL the receiver registered in advance — instead of the receiver having to constantly poll "did anything happen yet?", the sender pushes the update the moment it happens.
 
 Since the network is unreliable, a well-built webhook sender retries failed deliveries (usually with backoff, similar to the Retry pattern covered in the Reliability section) — which means the receiver needs to handle receiving the same webhook more than once (the Inbox pattern, covered earlier, is exactly the tool for this).
@@ -4505,7 +4574,77 @@ ex:`A payment processor sends a webhook to notify a merchant's server the moment
 The merchant's endpoint verifies the request's signature (using a shared secret set up when the webhook was first configured) before trusting it — rejecting any request that fails this check, since an attacker could otherwise send a fake "payment settled" webhook trying to trick the merchant's system into releasing goods for a payment that never actually happened.
 
 If the merchant's server is briefly down when the webhook first arrives, the processor automatically retries with backoff, and the merchant's system recognizes and safely ignores the duplicate if it already processed the first successful delivery.`,
-trade:[`Webhooks are far more efficient than polling for real-time updates, but they require the receiver to expose a publicly reachable endpoint and to build real reliability handling (signature verification, deduplication of retried deliveries, and a plan for what happens if their endpoint is down for an extended period and the sender eventually gives up retrying).`,`Skipping signature verification is a genuine, exploitable security hole in a payment context specifically — never trust a webhook's contents just because it arrived at the expected URL.`],related:["Retry with Backoff & Jitter", "Idempotency & Exactly-Once Delivery"]},
+trade:[`Webhooks are far more efficient than polling for real-time updates, but they require the receiver to expose a publicly reachable endpoint and to build real reliability handling (signature verification, deduplication of retried deliveries, and a plan for what happens if their endpoint is down for an extended period and the sender eventually gives up retrying).`,`Skipping signature verification is a genuine, exploitable security hole in a payment context specifically — never trust a webhook's contents just because it arrived at the expected URL.`],related:["Retry with Backoff & Jitter", "Idempotency & Exactly-Once Delivery", "Callback URL vs Webhook"]},
+
+{cat:"MA", title:"Callback URL vs Webhook", def:`Both terms describe a URL one system calls to notify another, and they get used loosely enough that people often treat them as synonyms — but there's a real distinction worth keeping straight.
+
+Callback URL — a URL the client supplies as part of a single request it initiated, which the other system calls back to once, to finish that same transaction. An OAuth redirect_uri (redirecting the user's browser back after they approve access) and a payment gateway's "return URL" after a 3D Secure check are both callback URLs: tightly coupled to one specific flow the client started, and typically fired exactly once.
+
+Webhook (covered elsewhere) — a URL registered in advance, called by the sender whenever some future event happens, completely decoupled from any specific request the receiver made. It can fire many times, for many unrelated events, with no browser or client involved at all.
+
+The terminology isn't perfectly standardized across the industry — some documentation uses "callback" loosely to mean webhook — so the distinction that actually matters in practice is what triggers the call and how many times it can happen, not which word a particular API's docs happen to use.`,
+diagram:`<svg viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Callback URL</text>
+  <circle cx="60" cy="70" r="20" fill="var(--amber)" fill-opacity="0.2" stroke="var(--amber)" stroke-width="2"/>
+  <text x="60" y="74" text-anchor="middle" fill="var(--amber)" font-size="8">Client</text>
+  <path d="M78,60 C 120,30 160,30 200,55" fill="none" stroke="var(--border)" stroke-width="2" marker-end="url(#cbA)"/>
+  <text x="140" y="35" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">1. starts a request</text>
+  <rect x="205" y="45" width="80" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="245" y="72" text-anchor="middle" fill="var(--text)" font-size="8">Other system</text>
+  <path d="M205,80 C 160,105 120,105 80,90" fill="none" stroke="var(--ledger)" stroke-width="2" marker-end="url(#cbB)"/>
+  <text x="140" y="120" text-anchor="middle" fill="var(--ledger)" font-size="7.5">2. calls back once, same flow</text>
+
+  <line x1="300" y1="20" x2="300" y2="150" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="430" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Webhook</text>
+  <rect x="330" y="45" width="80" height="45" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="370" y="72" text-anchor="middle" fill="var(--text)" font-size="8">Sender</text>
+  <line x1="410" y1="60" x2="470" y2="60" stroke="var(--violet)" stroke-width="2" marker-end="url(#cbC)"/>
+  <line x1="410" y1="75" x2="470" y2="80" stroke="var(--violet)" stroke-width="2" marker-end="url(#cbC)"/>
+  <line x1="410" y1="90" x2="470" y2="100" stroke="var(--violet)" stroke-width="2" marker-end="url(#cbC)"/>
+  <circle cx="490" cy="80" r="20" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="490" y="84" text-anchor="middle" fill="var(--violet)" font-size="8">Receiver</text>
+  <text x="430" y="130" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">registered once, fires many times,</text>
+  <text x="430" y="142" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">for unrelated future events</text>
+
+  <defs>
+    <marker id="cbA" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker>
+    <marker id="cbB" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="cbC" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--violet)"/></marker>
+  </defs>
+</svg>`,
+ex:`A fintech's Open Banking integration uses a callback URL (OAuth's redirect_uri) to bring the user's browser back to the app the moment they approve access at their bank — a single, expected call as part of one consent flow that the app itself kicked off. Separately, once that connection is live, the bank's system sends ongoing webhooks to notify the app whenever new transactions post to the account — an indefinite stream of independent events, with no user or browser involved.`,
+trade:[`A callback URL is simple because it's part of a flow the client already knows is happening — there's no need to register an endpoint in advance or handle arbitrary future events, but it can't be used for anything the client didn't just initiate.`,`A webhook handles ongoing, client-independent events well, but it demands everything a callback URL doesn't: a durable public endpoint, signature verification, retry and deduplication handling, since it might arrive at any time with no browser or user present to notice if something goes wrong.`],related:["Webhooks: Delivery, Retries & Signature Verification", "AuthN vs AuthZ (OAuth2 / OIDC / JWT)", "Cron vs Webhook vs Message Queue (How Work Actually Gets Triggered)"]},
+
+{cat:"MA", title:"Cron vs Webhook vs Message Queue (How Work Actually Gets Triggered)", def:`Three different ways work actually starts running in a backend system, and picking the wrong one for a given job is a common, avoidable source of complexity.
+
+Cron (scheduled) — the system itself decides when to run, on a fixed clock, with no external trigger needed. Simple and predictable, but only fits work that's genuinely time-based rather than event-based, and it means checking periodically even when nothing has actually changed.
+
+Webhook (push, covered elsewhere) — an external system notifies you the moment something happens, over HTTP. Real-time and efficient, but it depends on someone else's system reliably calling you, and you have to build the retry, deduplication, and security handling to receive it safely.
+
+Message queue (internal event-driven) — one part of your own system publishes an event, and another part consumes it, with the broker handling buffering, ordering, and retry. The right fit for work triggered by something happening inside your own system, especially when the producer and consumer need to scale independently.
+
+None of these is universally "better" — the right choice depends on where the trigger actually originates: on a clock, from an external party, or from your own system's internal state changing.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="40" width="160" height="90" rx="8" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="100" y="65" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Cron</text>
+  <text x="100" y="85" text-anchor="middle" fill="var(--text-dim)" font-size="8">triggered by</text>
+  <text x="100" y="100" text-anchor="middle" fill="var(--text-dim)" font-size="8">the clock</text>
+
+  <rect x="200" y="40" width="160" height="90" rx="8" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="280" y="65" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Webhook</text>
+  <text x="280" y="85" text-anchor="middle" fill="var(--text-dim)" font-size="8">triggered by an</text>
+  <text x="280" y="100" text-anchor="middle" fill="var(--text-dim)" font-size="8">external system</text>
+
+  <rect x="380" y="40" width="160" height="90" rx="8" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="460" y="65" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Message Queue</text>
+  <text x="460" y="85" text-anchor="middle" fill="var(--text-dim)" font-size="8">triggered by your</text>
+  <text x="460" y="100" text-anchor="middle" fill="var(--text-dim)" font-size="8">own system's event</text>
+
+  <text x="280" y="150" text-anchor="middle" fill="var(--text-faint)" font-size="9">Pick based on where the trigger actually originates</text>
+</svg>`,
+ex:`A fintech platform uses cron for its nightly settlement reconciliation (clock-based, nothing external needed), a webhook to learn the instant a card network confirms a transaction (an external system's event), and a message queue to fan a completed transaction out to the fraud, ledger, and notification services inside its own platform (an internal event, with each consumer scaling independently).`,
+trade:[`Using cron for something that's actually event-driven means polling for a change that could happen at any moment, adding needless latency and wasted checks between runs.`,`Using a message queue for something that's actually just a fixed daily schedule adds broker infrastructure and operational overhead for a job that a simple, well-monitored cron entry would have handled fine.`],related:["Webhooks: Delivery, Retries & Signature Verification", "Kafka vs RabbitMQ vs SQS", "Cron Jobs (Scheduled Task Execution)", "Deferred / Delayed Message Delivery in Message Queues"]},
 
 {cat:"MA", title:"Schema Evolution (Avro/Protobuf + Registry)", def:`When events flow through a message broker to multiple independent consumers, the event schema needs to change over time without breaking consumers still running the old version. A schema registry (with Avro or Protobuf) enforces compatibility rules (e.g., only additive, optional-field changes) at publish time.`,
 diagram:`<svg viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
@@ -5095,6 +5234,33 @@ diagram:`<svg viewBox="0 0 560 290" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`An L7 load balancer routes `+"`/api/v2/*`"+` payment requests to the new service version while everything else goes to the legacy service, enabling a gradual, path-based migration — something an L4 balancer can't do since it doesn't parse HTTP paths.`,
 trade:[`L4 is faster and simpler but can't make content-aware routing decisions; L7 enables powerful routing (canarying, A/B, path-based) at the cost of more processing per request.`,`Least-connections balancing handles uneven request durations better than round robin, but requires the balancer to track live connection state per backend.`],related:["Proxy vs Reverse Proxy vs API Gateway", "Active-Active vs Active-Passive"],priority:"high"},
+
+{cat:"MR", title:"Network Load Balancer (NLB) vs Application Load Balancer (ALB): When to Use Each", def:`Cloud providers ship pre-built load balancer products that map directly onto the L4-vs-L7 distinction covered in Load Balancing Algorithms, but under provider-specific names — AWS calls them Network Load Balancer (NLB) and Application Load Balancer (ALB), and the equivalent split exists in every major cloud.
+
+Network Load Balancer (NLB) — an L4 product: routes raw TCP/UDP traffic by IP and port, without reading the request itself. It handles extremely high throughput with very low, consistent latency, preserves a static IP for the balancer itself, and can front non-HTTP protocols, like a raw TCP connection to a trading system using the FIX protocol.
+
+Application Load Balancer (ALB) — an L7 product: understands HTTP, so it can route by URL path, hostname, or header, terminate TLS for you, and support features like WebSocket connections or integration with a Web Application Firewall (WAF). It costs a bit more processing time per request than an NLB, since it's actually parsing the request.
+
+The choice usually isn't close once the actual requirement is clear: anything that needs HTTP-aware routing or request-level features reaches for an ALB, and anything that needs raw throughput, a static IP, or a non-HTTP protocol reaches for an NLB. Some real systems put an NLB in front of an ALB, to get a static IP at the edge while keeping HTTP-aware routing behind it.`,
+diagram:`<svg viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="30" y="30" width="230" height="120" rx="8" fill="var(--blue)" fill-opacity="0.12" stroke="var(--blue)" stroke-width="2"/>
+  <text x="145" y="55" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">NLB</text>
+  <text x="145" y="72" text-anchor="middle" fill="var(--text-dim)" font-size="8.5">Network Load Balancer</text>
+  <text x="145" y="88" text-anchor="middle" fill="var(--blue)" font-size="8.5" font-weight="600">L4 — IP + port only</text>
+  <text x="145" y="108" text-anchor="middle" fill="var(--text-faint)" font-size="8">extreme throughput</text>
+  <text x="145" y="122" text-anchor="middle" fill="var(--text-faint)" font-size="8">static IP, non-HTTP protocols</text>
+
+  <rect x="300" y="30" width="230" height="120" rx="8" fill="var(--amber)" fill-opacity="0.12" stroke="var(--amber)" stroke-width="2"/>
+  <text x="415" y="55" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="700">ALB</text>
+  <text x="415" y="72" text-anchor="middle" fill="var(--text-dim)" font-size="8.5">Application Load Balancer</text>
+  <text x="415" y="88" text-anchor="middle" fill="var(--amber)" font-size="8.5" font-weight="600">L7 — reads the request</text>
+  <text x="415" y="108" text-anchor="middle" fill="var(--text-faint)" font-size="8">path/host/header routing</text>
+  <text x="415" y="122" text-anchor="middle" fill="var(--text-faint)" font-size="8">TLS termination, WAF, WebSocket</text>
+
+  <text x="280" y="168" text-anchor="middle" fill="var(--text-faint)" font-size="9">Same L4/L7 split as Load Balancing Algorithms — just AWS's product names for it</text>
+</svg>`,
+ex:`A trading platform puts an NLB in front of its FIX-protocol order-entry connections, since that traffic is raw TCP, latency-sensitive, and needs a fixed IP that trading partners can allowlist. The same platform's customer-facing REST API sits behind an ALB, which routes `+"`/v2/*`"+` requests to the newer service version by path while everything else goes to the legacy one — something the NLB in front of the trading connections couldn't do, since it never reads that far into the request.`,
+trade:[`An NLB gives you raw performance and protocol flexibility, but you lose all HTTP-aware routing — it can't make a single decision based on the actual content of a request.`,`An ALB's HTTP-aware routing and built-in TLS termination cover most typical API traffic well, but it adds real per-request processing overhead and simply can't front a non-HTTP protocol at all.`],related:["Load Balancing Algorithms (L4 vs L7)", "Proxy vs Reverse Proxy vs API Gateway", "Zero Trust Architecture"]},
 
 {cat:"MR", title:"Multi-AZ vs Multi-Region: What Each Protects Against", def:`Two different scopes of redundancy, and they protect against different failures.
 
@@ -6493,6 +6659,35 @@ diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A mid-size fintech's cloud bill triples over a year without anyone deciding that should happen. Adopting FinOps starts with tagging every resource by team and service (Inform), which reveals that one team's dev environment has been running 24/7 at full production size for months. Rightsizing that environment and shutting down genuinely unused resources (Optimize) cuts a meaningful chunk of the bill immediately, and setting a monthly budget with an alert for that team (Operate) stops the same drift from quietly happening again.`,
 trade:[`Tagging and attributing cost by team makes spending visible and accountable, but it only works if tagging is actually enforced consistently — a system with inconsistent or missing tags just produces a confident-looking report that's quietly wrong.`,`Committed-use discounts genuinely lower cost for steady workloads, but they're a bet on future usage — committing to capacity you later don't need locks in cost savings on paper while still overpaying in practice.`],related:["On-Premise vs Cloud", "Cross-Region / Cross-Cloud Data Transfer Costs (Egress Fees)", "Capacity Planning & Autoscaling"]},
+
+{cat:"CC", title:"Spot Instances vs Spot Fleet", def:`A Spot Instance is a single unit of spare cloud compute capacity, sold at a steep discount (often 60-90% off the on-demand price) compared to the same instance type — with one real catch: the provider can reclaim it back with only a short warning if it needs that capacity for a full-price customer.
+
+A Spot Fleet (or the equivalent "mixed instance types" capacity pool on other clouds) manages a diversified group of spot capacity across several instance types and availability zones at once, instead of betting on a single instance type in a single pool. If one pool gets reclaimed, the fleet automatically shifts to another pool that still has capacity, keeping the overall target capacity roughly steady instead of losing everything at once.
+
+This matters because a single spot instance being reclaimed is a near-certainty over time for any long-running workload — it's not a question of if, but when. A fleet spreads that risk across many independent pools, so the odds of losing meaningful total capacity all at once drop sharply, even though any individual instance in the fleet can still be reclaimed at any moment.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="120" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Single Spot Instance</text>
+  <rect x="50" y="55" width="140" height="60" rx="6" fill="var(--amber)" fill-opacity="0.15" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="120" y="90" text-anchor="middle" fill="var(--text)" font-size="9.5">One instance</text>
+  <text x="120" y="140" text-anchor="middle" fill="var(--red)" font-size="9" font-weight="600">Reclaimed → capacity gone</text>
+
+  <line x1="280" y1="20" x2="280" y2="150" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="420" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Spot Fleet</text>
+  <rect x="330" y="45" width="60" height="45" rx="4" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="2" stroke-dasharray="3,2"/>
+  <text x="360" y="70" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">Pool A</text>
+  <text x="360" y="82" text-anchor="middle" fill="var(--red)" font-size="7">reclaimed</text>
+
+  <rect x="400" y="45" width="60" height="45" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="430" y="72" text-anchor="middle" fill="var(--text)" font-size="7.5">Pool B</text>
+
+  <rect x="470" y="45" width="60" height="45" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="500" y="72" text-anchor="middle" fill="var(--text)" font-size="7.5">Pool C</text>
+
+  <text x="420" y="140" text-anchor="middle" fill="var(--ledger)" font-size="9" font-weight="600">Fleet shifts load, stays near target</text>
+</svg>`,
+ex:`A quant fintech runs its nightly portfolio risk-calculation batch job — which can tolerate being interrupted and restarted — on a Spot Fleet spread across several instance types, cutting compute cost sharply compared to on-demand pricing. When one instance type's spot pool gets reclaimed mid-run, the fleet automatically launches replacement capacity from a different pool, and the job's checkpoint-and-resume design picks up roughly where it left off instead of restarting from scratch.`,
+trade:[`Spot capacity is dramatically cheaper than on-demand, but it's fundamentally unsuitable for anything that can't tolerate sudden interruption — a payment-authorization service has no business running on spot instances.`,`A Spot Fleet meaningfully reduces the risk of losing all capacity at once, but it doesn't eliminate interruption risk entirely, and the workload itself still needs to be built to checkpoint progress and resume cleanly — spot only pays off for jobs designed for it.`],related:["On-Premise vs Cloud", "FinOps: A Framework for Cloud Cost Optimization", "Capacity Planning & Autoscaling"]},
 
 {cat:"CC", title:"Serverless / FaaS (Function as a Service)", def:`Instead of running a container or server that's always on and waiting for requests, you deploy just a function, and the cloud provider (AWS Lambda, Google Cloud Functions, and similar) runs it only when actually triggered — automatically handling all the scaling, and you're typically billed only for the actual time your code runs, not for idle capacity sitting around waiting.
 
