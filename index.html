@@ -5096,6 +5096,48 @@ diagram:`<svg viewBox="0 0 560 290" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`An L7 load balancer routes `+"`/api/v2/*`"+` payment requests to the new service version while everything else goes to the legacy service, enabling a gradual, path-based migration — something an L4 balancer can't do since it doesn't parse HTTP paths.`,
 trade:[`L4 is faster and simpler but can't make content-aware routing decisions; L7 enables powerful routing (canarying, A/B, path-based) at the cost of more processing per request.`,`Least-connections balancing handles uneven request durations better than round robin, but requires the balancer to track live connection state per backend.`],related:["Proxy vs Reverse Proxy vs API Gateway", "Active-Active vs Active-Passive"],priority:"high"},
 
+{cat:"MR", title:"Multi-AZ vs Multi-Region: What Each Protects Against", def:`Two different scopes of redundancy, and they protect against different failures.
+
+Multi-AZ — running redundant infrastructure across multiple Availability Zones (AZs, physically separate data centers within one region) protects against a single data center failing: a power outage, a hardware fault, a fire. It's cheap, low-latency since AZs sit close together, and doesn't introduce cross-region write conflicts.
+
+Multi-Region — running redundant infrastructure across multiple geographic regions protects against something multi-AZ can't: the entire region going down at once, whether from a provider-wide outage, a natural disaster, or a regional network partition. It costs more, adds real replication latency between regions, and — if both regions serve live traffic — introduces conflict-resolution complexity for concurrent writes to the same data.`,
+diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Multi-AZ (one region)</text>
+  <rect x="20" y="30" width="240" height="110" rx="8" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="140" y="45" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Region: us-east-1</text>
+
+  <rect x="35" y="55" width="60" height="65" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="65" y="90" text-anchor="middle" fill="var(--text)" font-size="9" font-weight="600">AZ-1</text>
+
+  <rect x="110" y="55" width="60" height="65" rx="6" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="140" y="90" text-anchor="middle" fill="var(--text)" font-size="9" font-weight="600">AZ-2</text>
+
+  <rect x="185" y="55" width="60" height="65" rx="6" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="2"/>
+  <text x="215" y="90" text-anchor="middle" fill="var(--text)" font-size="9" font-weight="600">AZ-3</text>
+
+  <text x="140" y="160" text-anchor="middle" fill="var(--text-faint)" font-size="9">Survives one data center failing —</text>
+  <text x="140" y="174" text-anchor="middle" fill="var(--red)" font-size="9" font-weight="600">not the whole region going down</text>
+
+  <line x1="280" y1="20" x2="280" y2="170" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="420" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Multi-Region</text>
+  <rect x="300" y="35" width="110" height="55" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="355" y="58" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">us-east-1</text>
+  <text x="355" y="74" text-anchor="middle" fill="var(--text-dim)" font-size="8">(live)</text>
+
+  <rect x="430" y="35" width="110" height="55" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="485" y="58" text-anchor="middle" fill="var(--text-dim)" font-size="9.5" font-weight="600">us-west-2</text>
+  <text x="485" y="74" text-anchor="middle" fill="var(--text-faint)" font-size="8">(failover target)</text>
+
+  <line x1="410" y1="62" x2="428" y2="62" stroke="var(--amber)" stroke-width="2" marker-end="url(#mrFailArrow)"/>
+  <defs><marker id="mrFailArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker></defs>
+
+  <text x="420" y="160" text-anchor="middle" fill="var(--text-faint)" font-size="9">Survives the entire region</text>
+  <text x="420" y="174" text-anchor="middle" fill="var(--ledger)" font-size="9" font-weight="600">going down together</text>
+</svg>`,
+ex:`A payments API runs identical replicas across all 3 Availability Zones in AWS's us-east-1 region — solid protection against a single data center losing power, and the setup most services should stop at. But when us-east-1 itself has a provider-wide outage (cloud regions are not immune to region-wide failures), every AZ inside it goes down together; only a service with a live failover into a second region, like us-west-2, stays reachable.`,
+trade:[`Multi-AZ is the right default for the vast majority of services — cheap and effective, but it does nothing for a genuine region-wide outage, a real if rare failure mode multi-AZ alone cannot survive.`,`Multi-region closes that gap, but it's a real cost and complexity commitment — cross-region replication latency, and for anything active-active, conflict-resolution logic for concurrent writes — that's wasted spend if the service's actual availability target never needed it.`],related:["Cloud Basics: Regions, Availability Zones & Managed Services", "Active-Active vs Active-Passive", "RTO vs RPO"]},
+
 {cat:"MR", title:"Active-Active vs Active-Passive", def:`Two ways to run infrastructure across multiple regions for reliability.
 
 Active-active — multiple regions all serve live traffic at the same time. This uses resources efficiently, but now two regions could both try to write to the same piece of data at once, and something needs to resolve that conflict.
@@ -5143,6 +5185,41 @@ diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A ledger system might target an RPO near zero (can't lose a single committed transaction — requires synchronous replication to a standby before acknowledging a write) and an RTO of a few minutes (automated failover, acceptable brief unavailability), whereas an analytics warehouse might tolerate an RPO of a few hours (nightly batch replication is fine) with a looser RTO.`,
 trade:[`Near-zero RPO (synchronous replication) costs write latency on every transaction; a looser RPO (async replication) is faster but risks losing the most recent transactions in a disaster.`,`These targets should be set explicitly per data type/service by the business, not assumed — "how much money loss risk is acceptable" is a business decision, not just an engineering one.`],related:["Backup Strategies & Point-in-Time Recovery", "Active-Active vs Active-Passive", "SLI, SLO & SLA"],priority:"high"},
+
+{cat:"MR", title:"Designing for High Availability, Cost & Fault Tolerance (Global Architecture Decision Guide)", def:`Designing a global, multi-region architecture always trades three things against each other: how available the service stays during a failure, how well it tolerates a failure without losing correctness, and how much it costs to run. You can't maximize all three at once — the right answer depends on how critical the specific service actually is, not one "best" architecture applied everywhere.
+
+The three tiers, from cheapest to most expensive:
+
+1. Single region, multi-AZ (baseline). Survives a single data center failing — power, hardware — at low cost, using the pattern from Multi-AZ vs Multi-Region. Doesn't survive the whole region going down. Right for most non-critical, internal, or easily-recoverable services.
+
+2. Multi-region, active-passive (failover). Adds a standby region that takes over if the primary fails, using the Active-Active vs Active-Passive pattern. Meaningfully better availability and fault tolerance than Tier 1, at the cost of running mostly-idle standby capacity and cross-region replication — recovery still takes real, non-zero time (see RTO vs RPO). Right for services where an outage is costly, but a few minutes of recovery time is tolerable.
+
+3. Multi-region, active-active (highest availability). Both regions serve live traffic simultaneously, so failing over is near-instant — the best available fault tolerance, but also the most expensive (duplicate live capacity, not idle standby) and the most complex (conflict resolution for concurrent writes to the same data). Reserved for the smallest, most critical slice of a system, like the actual payment-authorization path, not the whole platform.
+
+The real design skill is choosing this tier per service, based on its actual business criticality and recovery-time tolerance, and using the cheaper tiers everywhere that doesn't need Tier 3 — applying Tier 3 uniformly is how "cost-optimal" quietly disappears from the architecture.`,
+diagram:`<svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="280" y="18" text-anchor="middle" fill="var(--text-faint)" font-size="9">Availability, fault tolerance &amp; cost all increase together →</text>
+  <line x1="40" y1="150" x2="520" y2="150" stroke="var(--border)" stroke-width="1.5"/>
+
+  <rect x="70" y="105" width="100" height="45" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="120" y="90" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Tier 1</text>
+  <text x="120" y="128" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">multi-AZ</text>
+  <text x="120" y="140" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">single region</text>
+
+  <rect x="230" y="75" width="100" height="75" rx="4" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="280" y="60" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Tier 2</text>
+  <text x="280" y="100" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">active-passive</text>
+  <text x="280" y="112" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">multi-region</text>
+
+  <rect x="390" y="40" width="100" height="110" rx="4" fill="var(--violet)" fill-opacity="0.18" stroke="var(--violet)" stroke-width="2"/>
+  <text x="440" y="25" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Tier 3</text>
+  <text x="440" y="70" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">active-active</text>
+  <text x="440" y="82" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">multi-region</text>
+
+  <text x="280" y="172" text-anchor="middle" fill="var(--amber)" font-size="9" font-weight="600">Choose per service by criticality — not one tier for everything</text>
+</svg>`,
+ex:`A digital bank classifies its services by criticality before choosing an architecture: the marketing website and internal admin tools run single-region, multi-AZ, since a rare outage there is inconvenient but not costly. The account dashboard and notifications service run multi-region active-passive, since customers would notice an extended outage but a few minutes of failover is acceptable. Only the real-time payment-authorization path runs multi-region active-active, because that's the one place where even a brief outage directly blocks customers from moving their own money.`,
+trade:[`Running everything at Tier 3 gets the best possible availability everywhere, but it's rarely cost-optimal — most services in a real system don't have a business case that justifies duplicate live capacity and conflict-resolution complexity.`,`Running everything at Tier 1 to save cost is simpler to build and cheaper to run, but it leaves the organization's actual critical path exposed to a region-wide outage it was never designed to survive — the cost savings evaporate the first time that risk materializes.`],related:["Multi-AZ vs Multi-Region: What Each Protects Against", "Active-Active vs Active-Passive", "RTO vs RPO", "Capacity Planning & Autoscaling", "SLI, SLO & SLA"]},
 
 {cat:"MR", title:"Data Residency & Sovereignty", def:`Legal/regulatory requirements that certain data (especially financial and personal data) must be stored and/or processed within specific geographic/jurisdictional boundaries, restricting how you can architect global replication and failover.`,
 diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
@@ -5201,7 +5278,7 @@ diagram:`<svg viewBox="0 0 560 130" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A quarterly DR drill fails over a payments platform's live traffic to its secondary region for one hour. The drill reveals that the secondary region's database connection pool was sized for the standby's usual idle load, not full production traffic — a problem that would have caused a second outage on top of the first, discovered safely in a drill instead of during a real primary-region failure.`,
 trade:[`Running a real failover against production traffic is the only way to find the failure modes that a tabletop exercise or a staging-only test would miss, but it carries genuine risk to real users during the drill itself — this is why drills need their own careful blast-radius planning, rollback criteria, and often start in lower-stakes environments before graduating to production.`,`DR testing has an ongoing cost (engineering time, the operational risk of each drill) that's easy to deprioritize when nothing has gone wrong recently — but an RTO/RPO target that has never been tested against reality is a hope, not a guarantee.`],related:["RTO vs RPO", "Backup Strategies & Point-in-Time Recovery", "Chaos Engineering"]},
 
-{cat:"MR", title:"Geo-Aware Traffic Routing (GeoDNS & Latency-Based Routing)", def:`Once a system runs in multiple regions, something has to decide which region a given user's request actually lands in — a plain DNS record or a single load balancer in one place doesn't do this on its own.
+{cat:"MR", title:"Geo-Aware Traffic Routing (GeoDNS & Latency-Based Routing)", def:`Once a system runs in multiple regions, something has to decide which region a given user's request actually lands in — a plain DNS record or a single load balancer in one place doesn't do this on its own. Cloud providers often market this capability as a Global Load Balancer, or GSLB (Global Server Load Balancing) — the mechanics behind that marketing name are exactly what this topic covers.
 
 GeoDNS — the DNS server answers differently depending on the geographic location of the requester, inferred from their resolver's IP, returning the address of the nearest regional deployment before a connection is even made.
 
@@ -5248,6 +5325,44 @@ ex:`A global payments platform runs full regional deployments in the US, EU, and
 
 If the EU region is later marked unhealthy during an incident, the same system stops returning the EU address for new lookups, and German customers are instead routed to the next-nearest healthy region until EU recovers, with no client-side change or manual DNS update needed.`,
 trade:[`DNS-based routing changes aren't instant — DNS records have a TTL (time-to-live), and clients or resolvers that already cached the old answer keep using it until that TTL expires, putting a real floor on how fast failover can happen this way, unlike a load balancer that can react in seconds.`,`GeoDNS infers location from the resolver's IP, not always the actual client's location — a user behind a large ISP or corporate VPN that resolves DNS somewhere geographically different from the user themselves can occasionally get routed to the "wrong" region.`,`Latency-based routing requires ongoing, real measurement infrastructure, or a third-party provider that already has it, making it meaningfully more operationally complex than simple GeoDNS — worth the added cost only once "nearest by geography" and "actually fastest" meaningfully diverge for your specific users and network paths.`],related:["Load Balancing Algorithms (L4 vs L7)", "Active-Active vs Active-Passive", "DNS: How Domain Name Resolution Works"]},
+
+{cat:"MR", title:"Reducing Latency for Global Users (Decision Guide)", def:`Speed of light is the hard floor — no amount of engineering makes a request from Singapore to a server in Virginia faster than the physical distance allows. Reducing latency for a global user base means shortening how far a request actually has to travel, using a combination of a few established levers together rather than any single fix.
+
+Cache static content at the edge — a CDN (covered elsewhere) serves unchanging assets from a location near the user, so most requests never travel to the origin at all.
+
+Run logic at the edge — edge compute (covered elsewhere) handles simple, fast checks close to the user, for the cases a CDN's plain caching can't cover.
+
+Put data close to the reader — regional read replicas (covered in Scaling a Database Globally) mean a read doesn't have to cross an ocean, even though writes usually still do.
+
+Route to the nearest healthy region — geo-aware traffic routing (covered elsewhere) sends each user to the best available region automatically, instead of everyone hitting one fixed endpoint.
+
+In practice these stack: a request first hits the nearest edge location (cache or edge logic), and only what actually needs the origin travels further, to the nearest healthy region, which itself serves reads locally where possible.`,
+diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <circle cx="45" cy="75" r="18" fill="var(--amber)" fill-opacity="0.2" stroke="var(--amber)" stroke-width="2"/>
+  <text x="45" y="79" text-anchor="middle" fill="var(--amber)" font-size="8">User</text>
+
+  <line x1="63" y1="75" x2="120" y2="75" stroke="var(--border)" stroke-width="2" marker-end="url(#latArrow)"/>
+  <rect x="125" y="50" width="100" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="175" y="72" text-anchor="middle" fill="var(--text)" font-size="8.5">Edge</text>
+  <text x="175" y="86" text-anchor="middle" fill="var(--text-dim)" font-size="7">cache + logic</text>
+
+  <line x1="225" y1="75" x2="280" y2="75" stroke="var(--border)" stroke-width="2" marker-end="url(#latArrow)"/>
+  <rect x="285" y="50" width="110" height="50" rx="6" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="340" y="72" text-anchor="middle" fill="var(--text)" font-size="8.5">Geo routing</text>
+  <text x="340" y="86" text-anchor="middle" fill="var(--text-dim)" font-size="7">nearest healthy region</text>
+
+  <line x1="395" y1="75" x2="450" y2="75" stroke="var(--border)" stroke-width="2" marker-end="url(#latArrow)"/>
+  <rect x="455" y="50" width="90" height="50" rx="6" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="500" y="68" text-anchor="middle" fill="var(--text)" font-size="8.5">Region</text>
+  <text x="500" y="82" text-anchor="middle" fill="var(--text-dim)" font-size="7">local reads</text>
+  <text x="500" y="93" text-anchor="middle" fill="var(--text-dim)" font-size="7">writes go home</text>
+
+  <text x="290" y="130" text-anchor="middle" fill="var(--text-faint)" font-size="9">Most requests stop early — only what truly needs origin travels further</text>
+
+  <defs><marker id="latArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker></defs>
+</svg>`,
+ex:`A trading app with users in New York, London, and Singapore serves its static dashboard assets from a CDN edge near each user, runs a lightweight currency-formatting check at the edge, routes each user's API traffic to their nearest healthy region via geo-aware routing, and serves that user's read-only portfolio history from a regional read replica — while the actual trade-execution write still travels back to the single home region that owns that account, since correctness matters more than speed for that one operation.`,
+trade:[`Stacking these techniques meaningfully cuts latency for reads and static content, but writes to the single source of truth still pay the full network distance — no combination of caching or edge tricks changes that physics for data that must stay strongly consistent.`,`Each additional layer (edge logic, read replicas, geo-routing) is another moving piece to operate, monitor, and keep behaviorally consistent with the origin — more places for a subtle bug or stale-cache issue to hide.`],related:["CDN (Content Delivery Network)", "Scaling a Database Globally (Users Across Many Countries)", "Geo-Aware Traffic Routing (GeoDNS & Latency-Based Routing)", "Edge Computing (vs CDN)"]},
 
 // ---------------- FINTECH-SPECIFIC ----------------
 {cat:"FT", title:"Double-Entry Bookkeeping", def:`Every financial transaction is recorded as at least two balanced entries — a debit to one account and an equal credit to another — so the books are always mathematically self-consistent (total debits always equal total credits) and every movement of money has a fully traceable counterpart.`,
@@ -6173,6 +6288,211 @@ diagram:`<svg viewBox="0 0 460 170" xmlns="http://www.w3.org/2000/svg" font-fami
 </svg>`,
 ex:`A ledger database is deployed across 3 Availability Zones within one region, so that a single data center losing power doesn't take the whole database down — a failover to a replica in another AZ happens automatically within seconds. The team uses a managed database service rather than running their own database servers, so the cloud provider handles patching and hardware failures, freeing the team to focus on the schema and query performance instead.`,
 trade:[`Spreading across multiple AZs (not just multiple regions) is a cheap, effective way to survive a single data-center-level failure without the added complexity of true multi-region architecture, and is usually a sensible default even for a single-region deployment.`,`Managed services reduce operational burden significantly, but they also mean less low-level control and, at scale, sometimes higher cost than self-managing — a real trade-off to evaluate rather than an automatic "always use managed" answer.`],related:["Active-Active vs Active-Passive", "Load Balancing Algorithms (L4 vs L7)"]},
+
+{cat:"CC", title:"On-Premise vs Cloud", def:`Two different places to run your infrastructure, with a very different cost model and a very different set of who's responsible for what.
+
+On-premise — you buy and operate your own physical servers, in your own data center or a colocation facility (renting rack space and power in a shared facility, but the hardware inside it is still yours). You pay upfront for hardware (capital expenditure, or capex) and staff to maintain it, but you have full physical control over where data sits and how it's secured.
+
+Cloud — you rent compute, storage, and managed services from a provider (AWS, Google Cloud, Azure) and pay for what you use (operating expenditure, or opex) instead of owning hardware. The provider handles the physical data center, power, and hardware failures; you get elastic scaling in minutes instead of a hardware order that takes weeks, at the cost of less low-level control and an ongoing bill that scales with usage.
+
+Many fintechs run both at once: core ledger or trading systems that predate the cloud era (or that compliance teams are reluctant to move) stay on-premise, while newer, elastic-by-nature workloads run in the cloud.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">On-Premise</text>
+  <rect x="30" y="32" width="220" height="80" rx="8" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <rect x="50" y="48" width="55" height="48" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="77" y="76" text-anchor="middle" fill="var(--text)" font-size="8">Server</text>
+  <rect x="115" y="48" width="55" height="48" rx="4" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="142" y="76" text-anchor="middle" fill="var(--text)" font-size="8">Server</text>
+  <rect x="180" y="48" width="55" height="48" rx="4" fill="var(--panel)" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="207" y="76" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">Idle</text>
+  <text x="140" y="130" text-anchor="middle" fill="var(--text-dim)" font-size="9">You own the hardware —</text>
+  <text x="140" y="145" text-anchor="middle" fill="var(--amber)" font-size="9" font-weight="600">capex, fixed capacity</text>
+
+  <line x1="280" y1="20" x2="280" y2="150" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="420" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Cloud</text>
+  <rect x="310" y="32" width="220" height="80" rx="8" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2" stroke-dasharray="5,3"/>
+  <rect x="330" y="48" width="45" height="48" rx="4" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <rect x="385" y="48" width="45" height="48" rx="4" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <rect x="440" y="48" width="45" height="48" rx="4" fill="var(--blue)" fill-opacity="0.09" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="420" y="130" text-anchor="middle" fill="var(--text-dim)" font-size="9">Provider owns the hardware —</text>
+  <text x="420" y="145" text-anchor="middle" fill="var(--ledger)" font-size="9" font-weight="600">opex, elastic capacity</text>
+</svg>`,
+ex:`A fintech runs its core ledger and card-issuing system on-premise, in a data center it's operated for a decade, partly because rearchitecting a compliance-critical system carries real migration risk. The same company runs its public API gateway, fraud-scoring service, and mobile backend in the cloud, where traffic is spikier and elastic scaling actually pays for itself.`,
+trade:[`On-premise gives full physical control over where data sits and full ownership of the hardware, but capacity is fixed — you provision for peak load in advance, and unused capacity just sits there costing money.`,`Cloud gives elastic, pay-for-what-you-use capacity and offloads hardware failures to the provider, but at scale the ongoing bill can exceed what owning equivalent hardware would have cost, and you have less control over exactly where your workload physically runs.`],related:["Cloud Basics: Regions, Availability Zones & Managed Services", "Hybrid Cloud: Connecting On-Premise to Cloud", "Cloud Migration Strategies (On-Premise to Cloud)"]},
+
+{cat:"CC", title:"Hybrid Cloud: Connecting On-Premise to Cloud", def:`Once you have infrastructure in both places, something has to carry traffic between your on-premise network and your cloud provider's network securely — plain internet traffic between the two isn't good enough for most production, compliance-sensitive workloads.
+
+Site-to-site VPN (Virtual Private Network) — an encrypted tunnel over the public internet between your on-premise router and the cloud provider's network. Cheap and quick to set up, but its latency and throughput depend on the same public internet paths everyone else's traffic uses.
+
+Dedicated interconnect — a private physical (or provider-partnered) link directly into the cloud provider's network, bypassing the public internet entirely (AWS calls this Direct Connect, Azure calls it ExpressRoute, Google Cloud calls it Cloud Interconnect). Lower, more predictable latency and higher throughput, but it costs more and takes real lead time to provision — you can't spin one up in minutes the way you can a VPN.
+
+Most hybrid setups start with a VPN for speed of setup, and move latency-sensitive or high-volume traffic onto a dedicated interconnect once the volume justifies the cost.`,
+diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="65" width="120" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="80" y="94" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">On-Premise</text>
+
+  <rect x="420" y="65" width="120" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="480" y="94" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Cloud VPC</text>
+
+  <path d="M140,80 C 250,30 310,30 420,80" fill="none" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#hcArrow1)"/>
+  <text x="280" y="35" text-anchor="middle" fill="var(--amber)" font-size="9">Site-to-site VPN</text>
+  <text x="280" y="48" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">over the public internet</text>
+
+  <line x1="140" y1="100" x2="420" y2="100" stroke="var(--ledger)" stroke-width="2.5" marker-end="url(#hcArrow2)"/>
+  <text x="280" y="122" text-anchor="middle" fill="var(--ledger)" font-size="9">Dedicated interconnect</text>
+  <text x="280" y="135" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">private link, bypasses the public internet</text>
+
+  <defs>
+    <marker id="hcArrow1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--amber)"/></marker>
+    <marker id="hcArrow2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+  </defs>
+</svg>`,
+ex:`A bank's fraud-detection service, running in the cloud, needs to query an account database that still lives on-premise for every real-time transaction check. The team starts with a site-to-site VPN to get connected quickly, but once transaction volume makes the VPN's latency and throughput a bottleneck, they provision a dedicated interconnect to give that specific traffic a private, predictable-latency path.`,
+trade:[`A VPN is fast to set up and cheap, but it rides the public internet — latency and available bandwidth aren't guaranteed, and a busy internet path can genuinely slow down a latency-sensitive query.`,`A dedicated interconnect gives predictable, lower latency and higher throughput, but it costs meaningfully more and typically takes days to weeks to provision — not something you can reach for during an incident.`],related:["On-Premise vs Cloud", "Cloud Migration Strategies (On-Premise to Cloud)", "Zero Trust Architecture"]},
+
+{cat:"CC", title:"Cloud Migration Strategies (On-Premise to Cloud)", def:`Moving an existing on-premise system to the cloud isn't one action — it's a spectrum of strategies with very different amounts of risk, cost, and engineering effort. The commonly used framework groups them into a few approaches, from least to most work.
+
+Rehost ("lift and shift") — move the application to the cloud with little or no code change, typically by copying it onto cloud virtual machines. Fastest way to get out of a data center, but you inherit the old architecture's limitations and don't get much cloud-native benefit yet.
+
+Replatform — make small, targeted changes during the move, like swapping a self-managed database for a managed cloud database, without a full rewrite. A middle ground: some real benefit, without the cost of a full re-architecture.
+
+Refactor / re-architect — actually redesign the system to be cloud-native (e.g., breaking a monolith into services, adopting managed autoscaling). The most work and the most risk, but it's the only path to fully capturing the cloud's elasticity and managed-service benefits.
+
+Retire or retain — some systems get decommissioned entirely during a migration (nobody actually uses them anymore), and others are deliberately left on-premise for now, usually for compliance or because the cost of moving them outweighs the benefit.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="280" y="18" text-anchor="middle" fill="var(--text-faint)" font-size="9">Increasing effort &amp; cloud-native benefit →</text>
+  <line x1="30" y1="40" x2="530" y2="40" stroke="var(--border)" stroke-width="1.5"/>
+
+  <rect x="30" y="55" width="120" height="55" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="90" y="80" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Rehost</text>
+  <text x="90" y="95" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">lift and shift</text>
+
+  <rect x="185" y="55" width="120" height="55" rx="6" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="245" y="80" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Replatform</text>
+  <text x="245" y="95" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">targeted swaps</text>
+
+  <rect x="340" y="55" width="150" height="55" rx="6" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="415" y="80" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Refactor</text>
+  <text x="415" y="95" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">full re-architecture</text>
+
+  <rect x="30" y="130" width="460" height="30" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="260" y="150" text-anchor="middle" fill="var(--text-faint)" font-size="9">Retire (decommission) or Retain (leave on-premise) — no migration needed</text>
+</svg>`,
+ex:`A bank migrating its 15-year-old loan-origination system starts by rehosting it onto cloud virtual machines to get out of an expiring data-center lease quickly, then replatforms its database onto a managed cloud database over the following months, and only refactors the slowest, most valuable piece — the underwriting engine — into cloud-native services once the team has bandwidth for that bigger investment.`,
+trade:[`Rehosting is fast and low-risk, but you're paying cloud prices for an architecture that isn't actually using any cloud-native elasticity — often called "lift and shift, then pay and regret."`,`Refactoring captures the real benefits of the cloud, but it's a significant, multi-month engineering investment with real project risk — not something to commit to for a system nobody's sure is even worth keeping.`],related:["On-Premise vs Cloud", "Strangler Fig Pattern (Incremental Monolith Migration)", "Infrastructure as Code (IaC)"]},
+
+{cat:"CC", title:"Edge Computing (vs CDN)", def:`A CDN (Content Delivery Network, covered elsewhere) caches static content at servers close to the user. Edge computing goes a step further: it runs actual application code at those same close-to-the-user locations, not just cached files.
+
+This matters because a CDN can only serve something it already has cached — it can't make a decision, check a rule, or compute a response. Edge compute platforms (like Cloudflare Workers or AWS Lambda@Edge) let you run real logic at the edge: inspecting a request, rewriting it, running a quick check, or even generating a full response, all before it ever reaches your origin servers.
+
+The trade-off is capability versus consistency. Edge functions typically run in a lightweight, restricted runtime (not your full server environment), and they're deliberately kept simple and stateless, since they need to start instantly at hundreds of locations worldwide.`,
+diagram:`<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">CDN (cache only)</text>
+  <circle cx="60" cy="70" r="18" fill="var(--amber)" fill-opacity="0.2" stroke="var(--amber)" stroke-width="2"/>
+  <text x="60" y="74" text-anchor="middle" fill="var(--amber)" font-size="8">User</text>
+  <line x1="78" y1="70" x2="150" y2="70" stroke="var(--border)" stroke-width="2" marker-end="url(#ecArrow1)"/>
+  <rect x="155" y="45" width="90" height="50" rx="6" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="200" y="65" text-anchor="middle" fill="var(--text)" font-size="8.5">Edge server</text>
+  <text x="200" y="80" text-anchor="middle" fill="var(--text-faint)" font-size="7.5">serves cached file</text>
+  <text x="140" y="130" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Cache hit → done.</text>
+  <text x="140" y="144" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Cache miss → forward to origin.</text>
+
+  <line x1="280" y1="20" x2="280" y2="150" stroke="var(--border)" stroke-width="1"/>
+
+  <text x="420" y="18" text-anchor="middle" fill="var(--text-dim)" font-size="11" font-weight="600">Edge compute (runs code)</text>
+  <circle cx="340" cy="70" r="18" fill="var(--amber)" fill-opacity="0.2" stroke="var(--amber)" stroke-width="2"/>
+  <text x="340" y="74" text-anchor="middle" fill="var(--amber)" font-size="8">User</text>
+  <line x1="358" y1="70" x2="425" y2="70" stroke="var(--border)" stroke-width="2" marker-end="url(#ecArrow2)"/>
+  <rect x="430" y="45" width="100" height="50" rx="6" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="480" y="63" text-anchor="middle" fill="var(--text)" font-size="8.5">Edge function</text>
+  <text x="480" y="78" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">runs your code</text>
+  <text x="420" y="130" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Can check, rewrite, or fully</text>
+  <text x="420" y="144" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">answer — before reaching origin.</text>
+
+  <defs>
+    <marker id="ecArrow1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker>
+    <marker id="ecArrow2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--border)"/></marker>
+  </defs>
+</svg>`,
+ex:`A trading platform runs an edge function that checks a request's country against a sanctions list and rejects disallowed regions immediately at the edge, before the request ever reaches the origin servers — shaving off a full round trip for traffic that was always going to be rejected anyway, and reducing load on origin infrastructure from that traffic entirely.`,
+trade:[`Running logic at the edge cuts latency for the specific checks it handles, but the edge runtime is intentionally limited (no full database connections, tight execution time limits), so only simple, fast, mostly-stateless logic actually belongs there.`,`It moves part of your application's behavior outside your main codebase and deploy pipeline, which is powerful but easy to lose track of — a bug in an edge function can be quietly rejecting valid requests that never even show up in your origin server's logs.`],related:["CDN (Content Delivery Network)", "Reducing Latency for Global Users (Decision Guide)", "Serverless / FaaS (Function as a Service)"]},
+
+{cat:"CC", title:"Cross-Region / Cross-Cloud Data Transfer Costs (Egress Fees)", def:`Moving data into a cloud provider (ingress) is typically free. Moving data out — to the public internet, to another cloud provider, or even between regions within the same provider — usually isn't. These egress fees are billed per gigabyte, and they're easy to miss when estimating a hybrid or multi-region architecture's real cost.
+
+This shows up in a few common places.
+
+Cross-region replication — keeping a database or backup in sync across regions for redundancy or read locality moves real, ongoing volume across a billing boundary every time it replicates.
+
+Cross-cloud queries — a workload running in one cloud reading data that lives in another cloud pays egress on every byte read, which can make a "just query it directly" shortcut far more expensive than it looks.
+
+Serving large files or backups — sending large payloads out to users or to another provider adds up fast at scale, in a way a few API responses never would.
+
+The fix isn't avoiding multi-region or hybrid architecture — it's accounting for transfer volume as a real, ongoing cost during design, the same way you'd account for compute or storage, instead of discovering it for the first time on an invoice.`,
+diagram:`<svg viewBox="0 0 580 190" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="290" y="20" text-anchor="middle" fill="var(--red)" font-size="9" font-weight="600">Every path out — egress, billed per GB</text>
+
+  <rect x="230" y="65" width="120" height="55" rx="8" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="290" y="97" text-anchor="middle" fill="var(--text)" font-size="9.5" font-weight="600">Your cloud region</text>
+
+  <line x1="40" y1="92" x2="225" y2="92" stroke="var(--ledger)" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#egArrowIn)"/>
+  <text x="130" y="82" text-anchor="middle" fill="var(--ledger)" font-size="8.5">Ingress — usually free</text>
+
+  <line x1="355" y1="75" x2="480" y2="30" stroke="var(--red)" stroke-width="2" marker-end="url(#egArrowOut)"/>
+  <text x="510" y="25" text-anchor="middle" fill="var(--text-dim)" font-size="8">Another region</text>
+
+  <line x1="355" y1="92" x2="490" y2="92" stroke="var(--red)" stroke-width="2" marker-end="url(#egArrowOut)"/>
+  <text x="530" y="96" text-anchor="middle" fill="var(--text-dim)" font-size="8">Another cloud</text>
+
+  <line x1="355" y1="110" x2="480" y2="155" stroke="var(--red)" stroke-width="2" marker-end="url(#egArrowOut)"/>
+  <text x="500" y="170" text-anchor="middle" fill="var(--text-dim)" font-size="8">Public internet</text>
+
+  <defs>
+    <marker id="egArrowIn" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="egArrowOut" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--red)"/></marker>
+  </defs>
+</svg>`,
+ex:`A payments company replicates its ledger database from its primary region to a secondary region for disaster recovery, and separately lets its data science team query production data directly from a workload running in a different cloud provider for a one-off analysis. Both movements cross a billing boundary — the DR replication is an accepted, budgeted cost, but the ad-hoc cross-cloud query turns out to be an expensive surprise once someone actually reads the monthly bill.`,
+trade:[`Cross-region replication for disaster recovery is usually worth the egress cost — it's a known, budgeted trade for real resilience — but it needs to be sized and forecasted, not just assumed to be negligible at scale.`,`Ad-hoc cross-cloud or cross-region data access is convenient during development, but treating it the same way at production data volumes turns a shortcut into one of the largest line items on the infrastructure bill.`],related:["On-Premise vs Cloud", "Multi-AZ vs Multi-Region: What Each Protects Against", "Active-Active vs Active-Passive"]},
+
+{cat:"CC", title:"FinOps: A Framework for Cloud Cost Optimization", def:`FinOps (short for Financial Operations, sometimes called "cloud financial management") is a practice for making cloud spending a shared, deliberate responsibility across engineering, finance, and business teams, instead of a surprise finance discovers on the monthly bill. It's run as an iterative cycle with three phases, not a one-time project.
+
+Inform — give every team visibility into what they're actually spending, broken down by team, service, or feature, usually through consistent resource tagging, so cost is attributed to whoever can actually influence it instead of one opaque total.
+
+Optimize — once spending is visible, act on it. The most common levers:
+
+Rightsizing — matching instance and resource sizes to actual measured usage, instead of provisioning generously "just in case."
+
+Commitment discounts — buying reserved or committed-use capacity at a discount for steady, predictable workloads, instead of paying full on-demand price for something that never actually varies.
+
+Spot / preemptible capacity — using much cheaper, interruptible capacity for workloads that can tolerate being stopped and restarted, like batch jobs.
+
+Eliminating idle waste — finding and shutting down resources nobody's actually using anymore, which is often the single biggest and easiest win.
+
+Operate — make cost a standing part of how decisions get made: set budgets and alerts, review spend regularly against them, and feed cost back into architecture and product decisions going forward.
+
+The cycle repeats continuously, because a system that's cost-optimal today drifts as usage patterns, pricing, and the architecture itself change.`,
+diagram:`<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <circle cx="280" cy="50" r="45" fill="var(--ledger-dim)" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="280" y="46" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Inform</text>
+  <text x="280" y="60" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">visibility, tagging</text>
+
+  <circle cx="120" cy="150" r="45" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="120" y="146" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Optimize</text>
+  <text x="120" y="160" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">rightsize, commit, cut waste</text>
+
+  <circle cx="440" cy="150" r="45" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="440" y="146" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">Operate</text>
+  <text x="440" y="160" text-anchor="middle" fill="var(--text-dim)" font-size="7.5">budgets, review, feed back</text>
+
+  <path d="M 250,85 C 200,105 170,120 150,128" fill="none" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#foArrow)"/>
+  <path d="M 165,150 C 250,175 310,175 395,150" fill="none" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#foArrow)"/>
+  <path d="M 410,128 C 380,105 340,88 310,85" fill="none" stroke="var(--text-faint)" stroke-width="1.5" marker-end="url(#foArrow)"/>
+
+  <defs><marker id="foArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker></defs>
+</svg>`,
+ex:`A mid-size fintech's cloud bill triples over a year without anyone deciding that should happen. Adopting FinOps starts with tagging every resource by team and service (Inform), which reveals that one team's dev environment has been running 24/7 at full production size for months. Rightsizing that environment and shutting down genuinely unused resources (Optimize) cuts a meaningful chunk of the bill immediately, and setting a monthly budget with an alert for that team (Operate) stops the same drift from quietly happening again.`,
+trade:[`Tagging and attributing cost by team makes spending visible and accountable, but it only works if tagging is actually enforced consistently — a system with inconsistent or missing tags just produces a confident-looking report that's quietly wrong.`,`Committed-use discounts genuinely lower cost for steady workloads, but they're a bet on future usage — committing to capacity you later don't need locks in cost savings on paper while still overpaying in practice.`],related:["On-Premise vs Cloud", "Cross-Region / Cross-Cloud Data Transfer Costs (Egress Fees)", "Capacity Planning & Autoscaling"]},
 
 {cat:"CC", title:"Serverless / FaaS (Function as a Service)", def:`Instead of running a container or server that's always on and waiting for requests, you deploy just a function, and the cloud provider (AWS Lambda, Google Cloud Functions, and similar) runs it only when actually triggered — automatically handling all the scaling, and you're typically billed only for the actual time your code runs, not for idle capacity sitting around waiting.
 
