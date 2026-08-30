@@ -6250,17 +6250,65 @@ trade:[
 
 {cat:"PF", title:"How to Scale a Database, Step by Step (Decision Guide)", def:`Scaling a database isn't one decision — it's an ordered sequence of decisions, and each step is only justified once the step before it has genuinely been exhausted. Reaching for the most powerful tool (sharding, multi-region writers) before you actually need it is the most common overengineering mistake here: it permanently solves a problem you might not even have yet, in exchange for a system that's much harder to run.
 
-Step 1 — Find and fix the actual bottleneck. Before touching any infrastructure, confirm with evidence (slow query logs, EXPLAIN ANALYZE, aggregated stats) that the database is slow because of a missing index or a bad query plan, not because it's genuinely out of capacity. Why first: most "we need to scale the database" conversations are really a missing index wearing a bigger costume, and no amount of hardware fixes a bad query plan. When to move past it: the query plans are already clean, the right indexes exist, and the database is still maxed out under real, measured load.
+Step 1 — Find and fix the actual bottleneck.
 
-Step 2 — Vertical scaling. Move to a bigger instance — more CPU, RAM, and IOPS on the exact same single machine. Why: it's the fastest lever available, needs zero application code changes, and buys real time while a harder fix gets built. When to move past it: you've hit the ceiling of the largest instance your provider offers, the cost of the next size up stops making sense, or one machine is now an unacceptable single point of failure on its own.
+Use it when — you haven't yet confirmed why the database feels slow. Pull the evidence first: slow query logs, an EXPLAIN ANALYZE on the offending query, or aggregated wait-time stats.
 
-Step 3 — Read replicas. Route read-heavy traffic (dashboards, transaction history, reporting) to one or more read-only replicas, keeping every write on the primary. Why: most fintech systems are read-heavy relative to writes, so this removes the bulk of the load from the primary without touching the write path at all. When to move past it: replicas are absorbing essentially all the read load they can, but the primary is still struggling — specifically because writes, which replicas do nothing for, are now the real bottleneck.
+Best for — the single most common case in practice: a missing index or a bad query plan wearing a "we need to scale the database" costume. No amount of extra hardware fixes a bad query plan.
 
-Step 4 — Partitioning. Split one oversized table into smaller physical pieces on the same instance, so queries can skip irrelevant partitions and maintenance (archiving, deletes) gets cheap. Why: a single oversized table slows down every query and every maintenance job against it, even well-indexed ones, purely from its own size and bloat. When to move past it: the table is fully partitioned and well-organized, but the total write throughput you need still exceeds what one machine — however well partitioned — can physically provide.
+Main limit — it only fixes inefficiency, not real capacity. Once the query plans are already clean, the right indexes exist, and the database is still maxed out under real, measured load, this step is exhausted.
 
-Step 5 — Sharding. Split data across multiple independent database instances, using a shard key that matches your dominant query pattern. Why: this is the only lever left once write volume genuinely exceeds what any single machine can do, no matter how large or how well partitioned. When to move past it: sharded write capacity comfortably covers current load in one region, but users are now genuinely spread across continents, and the complaint you're hearing is about distance, not capacity.
+Downtime risk — usually none; adding an index or rewriting a query is normally a live change. Building a new index on a very large table can add real load while it runs, so it's worth scheduling for a quiet period.
 
-Step 6 — Go global. Decide, deliberately, where each piece of data's "true copy" lives, and how far a user has to reach to touch it. Why this step is different from every step before it: no matter how well-tuned a single region is, the speed of light puts a hard floor on how fast a far-away request can travel — past this point you're solving a data-placement problem, not a tuning problem.
+Step 2 — Vertical scaling.
+
+Use it when — you need the fastest possible relief and can't touch application code right now.
+
+Best for — buying real time cheaply: it needs zero application changes and moves you to more CPU, RAM, and IOPS on the exact same machine.
+
+Main limit — it has a hard ceiling. You eventually hit the largest instance size your provider offers, the cost of the next size up stops making sense, or one machine becomes an unacceptable single point of failure on its own.
+
+Downtime risk — real. Resizing a database instance commonly means a restart, so this step usually needs a maintenance window or a failover to an already-resized replica, not a silent, zero-downtime change.
+
+Step 3 — Read replicas.
+
+Use it when — the primary is struggling with reads (dashboards, transaction history, reporting), not writes.
+
+Best for — most fintech systems, since they're read-heavy relative to writes; this removes the bulk of the load from the primary without touching the write path at all.
+
+Main limit — it does nothing for writes. Once replicas are absorbing essentially all the read load they can, but the primary is still struggling, the real bottleneck has shifted to writes — which replicas can't help with — and this step is exhausted.
+
+Consistency risk — a replica can lag behind the primary by anywhere from milliseconds to seconds. Any read that must reflect the latest write, like checking whether a payment can be approved right now, has to go to the primary, not a replica.
+
+Step 4 — Partitioning.
+
+Use it when — one specific table has grown so large that even well-indexed queries and routine maintenance (archiving, deletes) against it have gotten slow, purely from its own size.
+
+Best for — splitting one oversized table into smaller physical pieces on the same instance, so queries can skip irrelevant partitions entirely.
+
+Main limit — it's still one machine. Once the table is fully partitioned and well-organized, but the total write throughput you need still exceeds what one machine — however well partitioned — can physically provide, this step is exhausted.
+
+Migration risk — picking a partition key that doesn't match how queries actually filter the data means queries keep scanning every partition anyway, forcing the whole scheme to be redone.
+
+Step 5 — Sharding.
+
+Use it when — write volume genuinely exceeds what any single machine can do, no matter how large or how well partitioned.
+
+Best for — the only lever left at a true write-capacity limit: splitting data across multiple independent database instances, using a shard key that matches your dominant query pattern.
+
+Main limit — it doesn't fix a global-latency problem. Once sharded write capacity comfortably covers current load in one region, but users are now genuinely spread across continents and the complaint is about distance, not capacity, this step is exhausted.
+
+Reversal risk — resharding, or consolidating shards back into fewer databases, is a real migration project every time, not a config change. A bad shard key picked early compounds in cost at every later step.
+
+Step 6 — Go global.
+
+Use it when — a single, well-tuned region genuinely isn't enough anymore, because the speed of light puts a hard floor on how fast a far-away request can travel.
+
+Best for — deciding, deliberately, where each piece of data's "true copy" lives and how far a user has to reach to touch it — a data-placement decision, not a tuning decision.
+
+Main limit — none of the three approaches below are free; each one trades away either simplicity, read freshness, or single-writer consistency to get there.
+
+Consistency risk — the moment more than one region can write, you're choosing how conflicting writes to the same record get resolved. That's a real design commitment, not an implementation detail.
 
 The three approaches, simplest to most complex, are covered in full in the dedicated Scaling Globally topic below.
 
