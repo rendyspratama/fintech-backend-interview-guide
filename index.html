@@ -314,6 +314,12 @@
   .card.def .term-label{color:var(--text);font-weight:600;}
   .card.def .term-label.acronym{color:var(--ledger);}
   .card.def .term-desc{color:var(--text-dim);}
+  .card.def .step-group{background:var(--panel-2);border-radius:8px;padding:16px 18px 4px;margin:0 0 20px 0;}
+  .card.def .step-group:last-child{margin-bottom:0;}
+  .card.def .step-header{font-size:17px;font-weight:600;color:var(--text);margin:0 0 14px 0;}
+  .card.def .step-num{color:var(--ledger);}
+  .card.def .step-group .term-line{margin-bottom:12px;}
+  .card.def .step-group .term-line:last-child{margin-bottom:0;}
   .acro{font-weight:600;}
   .card.def .acro{color:var(--ledger);}
   .card.ex .acro{color:var(--blue);}
@@ -6489,21 +6495,59 @@ trade:[
 
 {cat:"DG", title:"How to Debug a Production Incident, Step by Step (Decision Guide)", def:`Debugging a production incident isn't one skill — it's an ordered sequence of moves, and jumping straight to "find the root cause" while customers are actively losing money gets the order exactly backwards. Each step below earns its place because of what skipping it actually costs you.
 
-Step 1 — Stabilize first. Limit the damage (a feature flag off, a rollback, or a circuit-break of the affected path) before you understand anything about why it's happening. Why first: continued customer harm — duplicate charges, failed payments — almost always costs more than a slightly harder post-hoc investigation later. When to move past it: the bleeding has actually stopped, confirmed against the metric that was originally alarming, not a hopeful guess that the fix worked.
+Step 1 — Stabilize first.
 
-Step 2 — Localize with tracing and observability. Follow a single trace ID across every service the failing request touches, narrowing "something in the system is broken" down to one specific service and call. Why: manually correlating separate logs from a dozen services by timestamp is slow and error-prone, especially once several services could plausibly be the culprit. When to move past it: you've narrowed the problem to a specific service or query — not still trying to establish whether it's even a code issue at all.
+Use it when — this is always the very first move, before you understand anything about why the incident is happening.
 
-Step 3 — Check reproducibility, then form and test a hypothesis. Before writing down any hypothesis, first establish whether the problem can be reliably triggered on demand, or whether it's intermittent and only shows up sometimes — this single fact decides your entire testing strategy for this step.
+Best for — limiting damage fast: a feature flag off, a rollback, or a circuit-break of the affected path, none of which require knowing the cause yet.
+
+Main limit — it explains nothing. Move past it once the bleeding has actually stopped, confirmed against the metric that was originally alarming — not a hopeful guess that the fix worked.
+
+Risk if skipped — continued customer harm (duplicate charges, failed payments) almost always costs more than a slightly harder post-hoc investigation later; racing to root-cause first usually costs more real money, not less.
+
+Step 2 — Localize with tracing.
+
+Use it when — the incident is stabilized, but more than one service could plausibly be the culprit.
+
+Best for — following a single trace ID across every service the failing request touches, narrowing "something in the system is broken" down to one specific service and call.
+
+Main limit — it only narrows scope, it doesn't explain the failure. Move past it once you've narrowed the problem to a specific service or query — not while still establishing whether it's even a code issue at all.
+
+Risk if skipped — manually correlating separate logs from a dozen services by timestamp is slow and error-prone, especially once several services could plausibly be the culprit.
+
+Step 3 — Confirm reproducibility, then test a hypothesis.
+
+Use it when — you know which service or query is responsible, but not yet why it's failing.
+
+Best for — establishing, before writing down any hypothesis, whether the problem can be reliably triggered on demand or is intermittent — this single fact decides your entire testing strategy for the rest of the step.
+
+Main limit — a hypothesis that's never stated and tested explicitly can "fix" the symptom without anyone learning what was actually wrong, or introduce a second, unrelated problem. Move past it once the hypothesis is confirmed with direct evidence — a clean reproduction, or a strong correlation across multiple gathered occurrences — not merely because an error rate went down after some change.
+
+Risk if skipped — treating an intermittent bug as reproducible wastes time re-running a test that was never going to reliably trigger the symptom, and treating a reproducible bug as intermittent skips the fastest, most direct way to confirm a hypothesis.
 
 If it's reproducible: state a specific, falsifiable hypothesis ("I believe X causes Y because Z") and test it with the safest available method first — read-only queries, or a sandbox/shadow replay — before touching production directly.
 
 If it's not reproducible: you can't confirm a hypothesis by simply triggering the bug again, so the strategy shifts to gathering evidence for next time — add targeted logging or tracing around your leading suspects, correlate the occurrences you already have against deploys, config changes, or traffic patterns, and wait for (or, carefully, try to induce) another occurrence rather than concluding from a single data point.
 
-Why check this first: treating an intermittent bug as reproducible wastes time re-running a test that was never going to reliably trigger the symptom in the first place, and treating a reproducible bug as intermittent skips the fastest, most direct way to actually confirm a hypothesis. Why the whole step matters at all: randomly restarting things or poking at production without a stated hypothesis means you might "fix" the symptom without ever learning what was actually wrong, or worse, introduce a second, unrelated problem. When to move past it: the hypothesis is confirmed with direct evidence — either a clean reproduction, or a strong correlation across multiple gathered occurrences — not merely "the error rate went down after I changed something."
+Step 4 — Repair the code, and separately, the data.
 
-Step 4 — Repair the code, and separately, the data. Fixing the bug in code stops it from happening again, but does nothing for records that were already written incorrectly while the bug was live. Why both: a wrong balance or a duplicated fee doesn't self-correct just because the code that caused it is now fixed — it needs its own audited correction, distinct from the code fix. When to move past it: you've identified every affected record, not just the one that got reported, and applied a properly audited correction — never a silent, untracked UPDATE — for each one.
+Use it when — the hypothesis is confirmed and the fix itself is understood.
 
-Step 5 — Run a blameless postmortem. Once things are stable and understood, review the timeline, the root cause, and the contributing gaps (in monitoring, in process) — explicitly not who to blame. Why: a punitive review discourages the honest reporting needed to actually learn from an incident, which defeats the entire point of running one. When you're actually done: the postmortem has produced concrete action items with owners, not just a narrative of what happened.
+Best for — treating two different problems as two different problems: fixing the bug in code stops it from happening again, but does nothing for records that were already written incorrectly while the bug was live.
+
+Main limit — a code fix alone leaves every already-corrupted record wrong. Move past it once you've identified every affected record — not just the one that got reported — and applied a properly audited correction, never a silent, untracked UPDATE, for each one.
+
+Risk if skipped — a wrong balance or a duplicated fee doesn't self-correct just because the code that caused it is now fixed; a customer or an auditor finding the bad record before you do is a much worse conversation than fixing it proactively.
+
+Step 5 — Run a blameless postmortem.
+
+Use it when — once things are stable and understood; this is the closing step, not something to run alongside active firefighting.
+
+Best for — reviewing the timeline, the root cause, and the contributing gaps in monitoring and process — explicitly not who to blame.
+
+Main limit — a review by itself teaches nothing. You're actually done once the postmortem has produced concrete action items with owners, not just a narrative of what happened.
+
+Risk if skipped — a punitive review discourages the honest reporting needed to actually learn from an incident, which defeats the entire point of running one.
 
 One extra layer applies on top of all five steps for a global, multi-region application: the same code can behave differently in different places at the same time. Why this needs its own checkpoint: a bug that's actually a regional replication or infrastructure issue can waste hours if you go straight to reading application code instead — the full checklist is covered in the dedicated Debugging a Global, Multi-Region Application topic below.
 
@@ -7368,7 +7412,33 @@ function formatDef(text){
   // pattern (the project's established convention for enumerated sub-concepts)
   // get the term bolded, the rest dimmed, and a left rule for visual rhythm.
   // Acronym-looking leading terms (all-caps token, 2+ chars) get colored too.
-  return text.split(/\n\s*\n/).map(block=>{
+  //
+  // Additionally: a block that is JUST a short "Step N — Title" (single line,
+  // one sentence, title <=8 words — i.e. a header, not a dense paragraph) opens
+  // a tinted "step-group" box, and every term-line block that follows gets
+  // nested inside it until the next step header or a non-term-line block closes
+  // it. This only fires for that specific short-header shape, so existing
+  // topics whose "Step N — ..." is one long dense paragraph (word count/sentence
+  // count won't qualify) keep rendering exactly as before.
+  const blocks = text.split(/\n\s*\n/);
+  let html = "";
+  let stepOpen = false;
+  const closeStep = () => { if(stepOpen){ html += "</div>"; stepOpen = false; } };
+  for(const block of blocks){
+    const stepMatch = !/\n/.test(block) && block.match(/^Step\s+(\d+)\s+—\s+(.+)$/);
+    if(stepMatch){
+      const title = stepMatch[2];
+      const titleWordCount = title.trim().split(/\s+/).length;
+      const sentenceCount = (title.match(/[.!?]/g) || []).length;
+      if(titleWordCount <= 8 && sentenceCount <= 1){
+        closeStep();
+        const numHTML = escapeHTML(stepMatch[1]);
+        const titleHTML = highlightAcronyms(escapeHTML(title));
+        html += `<div class="step-group"><p class="step-header"><span class="step-num">Step ${numHTML}</span> — ${titleHTML}</p>`;
+        stepOpen = true;
+        continue;
+      }
+    }
     const m = block.match(/^([^\n]{1,45}?) — ([\s\S]+)$/);
     if(m){
       const term = m[1];
@@ -7382,11 +7452,15 @@ function formatDef(text){
           : (first.length >= 2 && /^[A-Z][A-Z0-9]*$/.test(first));
         const termHTML = escapeHTML(term);
         const restHTML = rest.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>");
-        return `<p class="term-line"><span class="term-label${isAcronym ? ' acronym' : ''}">${termHTML}</span> — <span class="term-desc">${restHTML}</span></p>`;
+        html += `<p class="term-line"><span class="term-label${isAcronym ? ' acronym' : ''}">${termHTML}</span> — <span class="term-desc">${restHTML}</span></p>`;
+        continue;
       }
     }
-    return "<p>" + block.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>") + "</p>";
-  }).join("");
+    closeStep();
+    html += "<p>" + block.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>") + "</p>";
+  }
+  closeStep();
+  return html;
 }
 function formatInline(text){
   // for list items: keep on one flow but still respect explicit line breaks
