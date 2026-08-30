@@ -612,6 +612,91 @@ diagram:`<svg viewBox="0 0 480 190" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`A web server might run as a single process with a pool of many threads, all sharing access to the same in-memory cache (fast, but exactly why that cache needs proper locking, as covered in the Thread Safety section) — versus running as several separate, isolated processes, each with its own memory and its own separate copy of the cache (safer in isolation, but now the caches can disagree with each other, and you need an external shared store like Redis if they need to stay in sync).`,
 trade:[`Threads are cheaper to create and communicate between than full processes, which is why most high-concurrency backend servers are built around threads (or even lighter-weight coroutines, covered earlier) rather than spinning up a whole new process per request — but that convenience is exactly the trade-off that makes thread safety a real, ongoing engineering concern rather than a solved problem you can ignore.`],related:["Concurrency vs Parallelism", "Threads vs Coroutines / Green Threads", "Thread-Local Storage"]},
 
+{cat:"CS", title:"System Resource Fundamentals: CPU, Memory, Disk I/O & Network I/O", def:`Every backend performance problem eventually traces back to one of four physical resources actually being the bottleneck. Knowing which one is genuinely saturated, instead of guessing, is what separates a five-minute fix from an afternoon spent scaling the wrong thing entirely.
+
+CPU (Central Processing Unit) — the resource spent computing, right now:
+
+Spikes when — a loop that never waits keeps a core continuously busy (an increment-only loop with no exit condition), or CPU-heavy work runs synchronously on the request thread: hashing a password with a high cost factor, parsing or serializing a large JSON payload, or recomputing a fraud-risk score against thousands of historical transactions in a loop.
+
+Stays flat when — the thread is waiting, not computing. A request blocked on a call to a payment gateway, or a query waiting on the database, burns almost no CPU while it waits, no matter how long the wait is.
+
+Fintech example — a nightly interest-accrual batch job that recalculates compound interest for every account in a single-threaded loop pins one CPU core at 100% for hours, while the payment-processing service handling those same accounts barely registers on CPU, since it spends its time waiting on the database and the card network, not computing.
+
+Common misfix — adding more CPU cores does nothing for a single-threaded busy loop, since one core still does all the work. The fix is removing the busy-wait or parallelizing the work, not buying a bigger machine.
+
+RAM (Random Access Memory) — the resource spent holding data, not computing on it:
+
+Spikes when — a process keeps creating objects or appending to a collection without ever releasing them: caching every transaction lookup in an in-memory map that's never evicted, or a bug that holds a reference to a finished request object, preventing it from being garbage collected.
+
+Stays flat when — the same computation just runs repeatedly without accumulating new data. A loop that only does math or checks a condition doesn't grow memory usage no matter how long it runs.
+
+Fintech example — a ledger service that caches every account balance it has ever looked up in an unbounded in-process map, instead of a size-limited cache, slowly climbs in memory usage over days until it hits an out-of-memory error during a traffic spike — a classic memory leak, not a sudden crash.
+
+Common misfix — memory usage that looks fine in a short load test can still climb slowly under real, sustained traffic. Catching this specifically is why soak testing (running load for hours, not minutes) exists as its own strategy, covered in Load & Soak Testing.
+
+Disk I/O (input/output) — the resource spent reading or writing to persistent storage:
+
+Spikes when — a service writes every log line synchronously to disk on the request path, or a database query does a full table scan that reads far more data off disk than an indexed lookup would.
+
+Stays flat when — data is served from an in-memory cache or from database pages already resident in RAM. A well-cached, read-heavy workload can have almost no disk I/O even under heavy request volume.
+
+Fintech example — a transaction-history endpoint querying an unindexed transactions table forces the database to scan the entire table from disk on every request, spiking disk I/O and slowing every other query sharing that disk. Adding the missing index turns the same query into a fast, low-I/O lookup.
+
+Common misfix — disk I/O and CPU can look similar from a "the service is slow" symptom, but they need opposite fixes: a CPU-bound problem needs less computation or more cores, while a disk-bound problem needs better indexing, caching, or faster storage — extra CPU does nothing for it.
+
+Network I/O (input/output) — the resource spent sending or receiving data over the network:
+
+Spikes when — a service makes many small, separate calls instead of one batched call (fetching each item in a cart with a separate request instead of one bulk request), or transfers large payloads that could have been paginated or compressed.
+
+Stays flat when — calls to the same downstream service are batched, cached, or reduced in number, even if the total amount of data moved stays similar.
+
+Fintech example — a fraud-review dashboard that calls the risk-scoring service once per transaction to render a list of 200 transactions makes 200 separate network round-trips. A single batched call for all 200 scores moves the same underlying data with a fraction of the round-trip overhead.
+
+Common misfix — a chatty service can look idle on CPU and memory graphs while still being slow, because the bottleneck is round-trip time to another service, not local resource usage. Adding CPU or RAM does nothing for it.
+
+In practice you rarely guess which one is the problem — you look at the actual numbers: CPU utilization per core, memory usage over time, disk wait time, and network throughput, all visible in standard OS or cloud monitoring tools. The patterns above are what let you interpret those numbers instead of just staring at them.`,
+diagram:`<svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="10" y="10" width="220" height="130" rx="8" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="2"/>
+  <text x="120" y="34" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="700">CPU</text>
+  <text x="120" y="52" text-anchor="middle" fill="var(--text-dim)" font-size="9">computing, right now</text>
+  <text x="120" y="76" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">spikes: busy loop,</text>
+  <text x="120" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">sync CPU-heavy work</text>
+  <text x="120" y="112" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">flat: waiting on I/O</text>
+
+  <rect x="250" y="10" width="220" height="130" rx="8" fill="var(--blue)" fill-opacity="0.15" stroke="var(--blue)" stroke-width="2"/>
+  <text x="360" y="34" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="700">RAM</text>
+  <text x="360" y="52" text-anchor="middle" fill="var(--text-dim)" font-size="9">holding data, right now</text>
+  <text x="360" y="76" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">spikes: unbounded cache,</text>
+  <text x="360" y="90" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">objects never released</text>
+  <text x="360" y="112" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">flat: pure compute loop</text>
+
+  <rect x="10" y="155" width="220" height="130" rx="8" fill="var(--amber)" fill-opacity="0.15" stroke="var(--amber)" stroke-width="2"/>
+  <text x="120" y="179" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="700">Disk I/O</text>
+  <text x="120" y="197" text-anchor="middle" fill="var(--text-dim)" font-size="9">reading / writing storage</text>
+  <text x="120" y="221" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">spikes: full table scan,</text>
+  <text x="120" y="235" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">synchronous log writes</text>
+  <text x="120" y="257" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">flat: served from cache</text>
+
+  <rect x="250" y="155" width="220" height="130" rx="8" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="360" y="179" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="700">Network I/O</text>
+  <text x="360" y="197" text-anchor="middle" fill="var(--text-dim)" font-size="9">sending / receiving data</text>
+  <text x="360" y="221" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">spikes: many small calls,</text>
+  <text x="360" y="235" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">large uncompressed payloads</text>
+  <text x="360" y="257" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">flat: batched, cached calls</text>
+</svg>`,
+ex:`A month-end settlement batch job starts missing its SLA. The on-call engineer's first instinct is to add more CPU cores, but a quick check shows CPU sitting at 15% utilization; the real bottleneck is disk I/O, because the job writes an audit-log line synchronously to disk for every one of two million settled transactions. Switching to batched, buffered log writes fixes the SLA miss without touching CPU or RAM at all.`,
+trade:[`These four numbers are correlated, not independent — a request waiting on a slow disk read still holds open a network connection and a chunk of memory for that pending request, so a resource graph rarely isolates one "pure" cause the way a textbook example does.`,`Watching per-process resource usage has its own cost — fine-grained profiling and continuous per-request tracing of CPU, memory, disk, and network themselves consume CPU and I/O, so production monitoring usually samples or aggregates rather than tracing everything, trading precision for lower overhead.`,`Cloud autoscaling triggers are usually keyed to just one or two of these metrics, commonly CPU — so a genuinely disk- or network-bound service can sit comfortably within its CPU-based autoscaling threshold while still being slow for users, and the dashboard can look healthy while the real bottleneck goes unnoticed.`],
+code:`// CPU-bound: pegs a core, memory stays flat
+while (true) {
+  x++;
+}
+
+// Memory-bound: memory climbs, CPU stays near-idle
+const cache = [];
+while (true) {
+  cache.push(new Transaction());
+}`,related:["OS Basics: Process vs Thread, Stack vs Heap", "Latency, Throughput & IOPS: The Core Performance Metrics", "Load & Soak Testing", "Thread Pool Sizing"],priority:"high"},
+
 {cat:"CS", title:"Stateless vs Stateful Services (Twelve-Factor App Principles)", def:`A stateless service doesn't keep any request-specific data in its own memory between requests — every request carries (or can retrieve from a shared external store) everything needed to handle it, so any instance of the service can handle any request, and instances can be added, removed, or restarted freely without losing anything.
 
 A stateful service keeps some of that data locally in memory (like a user's session, or an in-progress computation), which means a specific request needs to reach the specific instance holding that data — a real constraint on how freely you can scale, load balance, and recover from failures.
@@ -5138,6 +5223,83 @@ diagram:`<svg viewBox="0 0 560 120" xmlns="http://www.w3.org/2000/svg" font-fami
 ex:`Validating that a transfer amount is a positive number within expected bounds (not negative, not absurdly large, not a string containing SQL) prevents both attacks and accidental bugs. Separately, logging "user X approved refund Y at timestamp Z from IP W" in an immutable audit log means that if a dispute arises later about who authorized a refund, there's reliable evidence — this is often a regulatory requirement, not just a nice-to-have.`,
 trade:[`Validation should happen as early as possible (reject bad input immediately) but must be consistent everywhere data enters the system — a single unvalidated entry point undermines the protection everywhere else.`,`Audit logs must be tamper-resistant (append-only, ideally write-once storage) — a log an admin can quietly edit doesn't actually provide non-repudiation, since the "proof" could be altered.`],related:["Common Web Vulnerabilities: SQL Injection, XSS & CSRF", "Regulatory Compliance Basics (SOC 2, GDPR, KYC/AML)"]},
 
+{cat:"SC", title:"Sessions vs Cookies vs Tokens: What Each One Is and When to Use Which", def:`These three words get used almost interchangeably, but they're three different things that are commonly paired, not synonyms for each other: a cookie is a storage/transport mechanism, a session is a state-tracking concept, and a token is a self-contained credential. A real system usually combines two of the three — knowing which combination fits which situation is the actual skill being tested.
+
+Cookie — a small piece of data the browser stores and resends:
+
+What it carries — any key-value pair a server asks the browser to remember, set via a Set-Cookie response header. The browser then attaches it automatically to every future request matching that cookie's domain and path, with no client-side code required.
+
+Not just for sessions — a cookie can hold a session ID, but just as easily a language preference, an A/B test bucket, or a tracking ID. The mechanism itself doesn't know or care what the value means.
+
+The trade — the browser sending it without being asked is exactly what makes CSRF possible in the first place, since a malicious site can trigger a request that carries the victim's cookie without the victim's own JavaScript ever being involved.
+
+Session — server-side memory of who's making this request:
+
+What it tracks — that a sequence of otherwise-stateless HTTP requests all belong to the same logged-in user, so the server doesn't have to re-verify a password on every single request.
+
+How it's usually carried — a random, opaque session ID that means nothing on its own. The server looks it up in a session store (in-memory, Redis, a database) to find out who it actually belongs to and what they're allowed to do.
+
+Where it lives — on the server, or in a shared store the servers all read from. The cookie (or token) is just the claim ticket the client presents to find that state again.
+
+Token (e.g. JWT) — a self-contained credential the server doesn't have to look up:
+
+What it carries — the claims themselves (user ID, role, expiry) signed directly into the token, so any server that can verify the signature can trust it without a database lookup or a shared session store.
+
+How it's usually carried — manually, in an Authorization: Bearer header the client attaches to each request. Unlike a cookie, nothing sends it automatically, so client-side code has to remember to include it every time.
+
+The real trade — no lookup means no easy revocation. A compromised token stays valid until it expires, since there's no server-side session record to delete (covered in more depth in AuthN vs AuthZ).
+
+Choosing between them — usually decided by the client, not a security preference:
+
+Cookie + session — the natural fit for a traditional server-rendered or same-origin web app, where the browser automatically attaching the cookie on every request is a feature, not a bug, and keeping session state in a shared store isn't a burden.
+
+Bearer token — the natural fit when the client isn't a browser at all (a mobile app, a server-to-server call, a public API), or when the API is deliberately kept stateless behind a load balancer, since nothing needs to be attached automatically and no shared session store has to stay in sync.
+
+Both together — common when the same backend serves both a first-party web app and third-party integrations: the web app uses a cookie-based session for its own logged-in users, while the API also accepts a bearer token for programmatic access, with the same authorization checks applied either way.`,
+diagram:`<svg viewBox="0 0 520 260" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <text x="140" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Cookie-based session</text>
+  <rect x="30" y="35" width="90" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="75" y="56" text-anchor="middle" fill="var(--text)" font-size="9.5">Browser</text>
+  <line x1="120" y1="52" x2="160" y2="52" stroke="var(--ledger)" stroke-width="2" marker-end="url(#stArrow1)"/>
+  <text x="140" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="7">Cookie: session=abc</text>
+  <rect x="165" y="35" width="90" height="34" rx="5" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="210" y="56" text-anchor="middle" fill="var(--text)" font-size="9.5">Server</text>
+  <line x1="210" y1="69" x2="210" y2="100" stroke="var(--ledger)" stroke-width="2" marker-end="url(#stArrow2)"/>
+  <rect x="150" y="103" width="120" height="34" rx="5" fill="var(--panel-2)" stroke="var(--ledger)" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="210" y="124" text-anchor="middle" fill="var(--text-dim)" font-size="8.5">Session store lookup</text>
+
+  <text x="410" y="20" text-anchor="middle" fill="var(--text-dim)" font-size="10.5" font-weight="600">Bearer token</text>
+  <rect x="320" y="35" width="90" height="34" rx="5" fill="var(--panel-2)" stroke="var(--border)" stroke-width="2"/>
+  <text x="365" y="56" text-anchor="middle" fill="var(--text)" font-size="9.5">Client</text>
+  <line x1="410" y1="52" x2="450" y2="52" stroke="var(--violet)" stroke-width="2" marker-end="url(#stArrow3)"/>
+  <text x="430" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="7">Authorization: Bearer</text>
+  <rect x="455" y="35" width="55" height="34" rx="5" fill="var(--violet)" fill-opacity="0.15" stroke="var(--violet)" stroke-width="2"/>
+  <text x="482" y="56" text-anchor="middle" fill="var(--text)" font-size="9.5">API</text>
+  <line x1="482" y1="69" x2="482" y2="100" stroke="var(--violet)" stroke-width="2" marker-end="url(#stArrow4)"/>
+  <text x="482" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="8.5">Verify signature —</text>
+  <text x="482" y="131" text-anchor="middle" fill="var(--text-dim)" font-size="8.5">no lookup needed</text>
+
+  <text x="270" y="175" text-anchor="middle" fill="var(--text-faint)" font-size="9">Same question either way: "who is making this request,</text>
+  <text x="270" y="190" text-anchor="middle" fill="var(--text-faint)" font-size="9">and what are they allowed to do?" — just answered differently.</text>
+
+  <text x="140" y="220" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Attached automatically by the browser</text>
+  <text x="410" y="220" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">Attached manually by client code</text>
+
+  <defs>
+    <marker id="stArrow1" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="stArrow2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--ledger)"/></marker>
+    <marker id="stArrow3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--violet)"/></marker>
+    <marker id="stArrow4" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--violet)"/></marker>
+  </defs>
+</svg>`,
+ex:`A neobank's mobile app authenticates with a bearer JWT in the Authorization header — no cookie at all, since a native app isn't a browser and nothing needs anything attached automatically. The same neobank's web dashboard authenticates against the exact same backend API using a cookie-based session instead. Both requests hit the same authorization check on the server, but the mobile app's client code has to remember to attach its token on every call, while the web dashboard's browser does it automatically.`,
+trade:[`A bearer token sitting in memory or localStorage is exposed to any successful XSS attack on the page, since page JavaScript can read it directly — an HttpOnly cookie is specifically immune to that theft vector, which is why moving a token into an HttpOnly cookie is a common middle ground, at the cost of needing CSRF defenses again.`,`Statelessness removes the shared-session-store dependency, but that same property makes revocation hard — deleting a session row is instant, while an already-issued token stays valid until it expires unless you build a blocklist, which reintroduces the lookup you were trying to avoid.`,`Running both patterns at once, as many APIs do, means two authentication code paths to keep in sync — a permission change or a security fix applied to the cookie-session path but forgotten on the bearer-token path leaves a real gap, not just a theoretical one.`],
+code:`// Cookie-based session (browser attaches automatically)
+Cookie: session=abc123
+
+// Bearer token (client must attach manually, every request)
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`,related:["Session & Cookie Security", "AuthN vs AuthZ (OAuth2 / OIDC / JWT)", "Stateless vs Stateful Services (Twelve-Factor App Principles)", "Common Web Vulnerabilities: SQL Injection, XSS & CSRF"],priority:"high"},
+
 {cat:"SC", title:"Session & Cookie Security", def:`A session is how a server remembers "this request belongs to the same logged-in user" across multiple requests, typically via a token stored in a cookie. Getting the cookie's attributes and lifecycle right is its own distinct security surface, separate from the vulnerabilities it interacts with.
 
 HttpOnly — tells the browser to hide the cookie from JavaScript entirely, so even if an XSS vulnerability exists elsewhere on the page (covered elsewhere in this guide), an attacker's injected script can't read the session token directly.
@@ -6196,7 +6358,110 @@ diagram:`<svg viewBox="0 0 480 210" xmlns="http://www.w3.org/2000/svg" font-fami
   </defs>
 </svg>`,
 ex:`Sharding by `+"`account_id`"+` means every query for a given account's data (the vast majority of your traffic) hits exactly one shard — but a report needing to aggregate across *all* accounts (e.g., total platform balance) now requires a expensive fan-out query across every shard, which needs to be designed for explicitly rather than assumed to just work.`,
-trade:[`Enables horizontal write scale beyond a single machine's ceiling, but a poorly chosen shard key creates hot shards (uneven distribution, e.g., one huge enterprise customer overwhelming their shard) and cross-shard joins/transactions become genuinely hard or impossible.`,`Resharding later (splitting an overloaded shard) is a significant migration project — getting the shard key reasonably right early saves enormous pain later.`],related:["Consistent Hashing", "Partitioning", "Lock Contention & Hot Rows"],priority:"high"},
+trade:[`Enables horizontal write scale beyond a single machine's ceiling, but a poorly chosen shard key creates hot shards (uneven distribution, e.g., one huge enterprise customer overwhelming their shard) and cross-shard joins/transactions become genuinely hard or impossible.`,`Resharding later (splitting an overloaded shard) is a significant migration project — getting the shard key reasonably right early saves enormous pain later.`],related:["Consistent Hashing", "Partitioning", "Lock Contention & Hot Rows", "Fixing a Hot Shard From a Single High-Traffic User (Decision Guide)"],priority:"high"},
+
+{cat:"PF", title:"Fixing a Hot Shard From a Single High-Traffic User (Decision Guide)", def:`A hot shard isn't a shard-key mistake you get to undo overnight — it's a live production problem that needs a fast, cheap mitigation first and a structural fix second. Escalate through these steps in order; most of them buy real relief without a full resharding project, which is the expensive last resort, not the first response to one loud alert.
+
+Step 1 — Confirm it's actually one key.
+
+Use it when — a shard is visibly hotter than its siblings (higher CPU, more queued queries, higher replication lag) and you haven't yet confirmed why.
+
+Best for — telling a genuine single-key hot spot apart from a shard that's just old or under-provisioned, or from a broader traffic spike hitting every shard equally.
+
+Main limit — it only diagnoses the problem, it doesn't fix anything yet. Move past it once per-key metrics or query logs show one shard key responsible for a clearly disproportionate share of that shard's own traffic.
+
+Risk if skipped — throwing a structural resharding project at a problem that was actually caused by a missing index or an inefficient query for one user wastes real engineering time on the wrong layer entirely.
+
+Step 2 — Cache in front of the hot key.
+
+Use it when — the hot traffic is mostly reads: dashboard views, balance checks, transaction-history lookups for that one user.
+
+Best for — cutting load fast with no schema change. A short-lived cache (Redis, or even an in-process cache) absorbs repeated reads for that one user's data without touching the shard on every request.
+
+Main limit — it does nothing for writes, and only helps if the same data is read repeatedly. A hot key driven by unique, ever-changing writes gets no benefit here.
+
+Risk if skipped — every read for that user keeps hitting the same overloaded shard directly, degrading response times for every other tenant sharing it, while a cheap fix sits unused.
+
+Step 3 — Throttle the key at the application layer.
+
+Use it when — the volume looks abnormal for a real user: bot traffic, a buggy integration retrying aggressively, or a scraper, rather than genuine legitimate usage.
+
+Best for — stopping abusive or accidental traffic before it ever reaches the database, which is the cheapest possible place to block it.
+
+Main limit — it can't be applied to traffic that's genuinely legitimate. Throttling a real high-volume customer just moves the pain onto them instead of fixing the underlying capacity problem.
+
+Risk if skipped — one misbehaving client keeps degrading a shard for every other tenant sharing it, even though the actual fix is a five-minute rate-limit rule, not a database change at all.
+
+Step 4 — Give the hot key its own dedicated shard.
+
+Use it when — the hot user is a genuine, sustained outlier (a large enterprise customer, not a temporary spike), and caching or throttling alone aren't buying enough headroom.
+
+Best for — isolating the noisy neighbor: moving just that one key's data onto its own shard means its load no longer competes with every other tenant that used to share that shard.
+
+Main limit — it only helps the one outlier you moved. A second, unrelated hot key showing up later needs this exact same manual isolation again, so it doesn't scale to many outliers.
+
+Risk if skipped — every other tenant that happened to land on the same shard as the outlier keeps paying a latency tax caused by someone else's traffic — a fairness and reliability problem, not just a performance one.
+
+Step 5 — Sub-shard the hot key's own data.
+
+Use it when — even a dedicated shard isn't enough headroom, because that one key's own write volume alone exceeds what a single machine can do.
+
+Best for — spreading one logical entity's data across multiple physical shards using a composite key (the user ID plus a time bucket or a synthetic suffix), so that one user's traffic is no longer confined to one machine.
+
+Main limit — every query for that user can now fan out across multiple shards instead of hitting one, trading the hot-shard problem for the cross-shard query complexity sharding was trying to avoid in the first place.
+
+Risk if skipped — the outlier's dedicated shard eventually hits the exact same ceiling a shared shard did. Giving it a whole machine only bought time, not unlimited capacity.
+
+Step 6 — Redesign the shard key for the cluster.
+
+Use it when — hot keys keep recurring across different users over time, a sign the shard key itself, not any one outlier, is the actual problem.
+
+Best for — the structural fix: redesigning the shard key, for example consistent hashing with many virtual nodes per physical shard, so no single value can dominate one shard again. Covered in full in Consistent Hashing and Sharding & Shard Key Selection.
+
+Main limit — resharding an entire cluster onto a new key is a significant migration project, not a quick patch, which is exactly why it's the last step here, not the first reaction to an incident.
+
+Risk if skipped — every future large customer becomes a fresh hot-shard incident, and the team keeps manually firefighting a problem the shard key design could have prevented for good.
+
+The checkpoint question is the same at every step: does this step's headroom actually cover what you're seeing, or are you reaching for a more invasive fix before confirming the cheaper one isn't enough? Cache and throttle first, isolate the outlier next, and treat a full reshard as the genuine last resort.`,
+diagram:`<svg viewBox="0 0 360 460" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="8" width="320" height="44" rx="6" fill="var(--panel)" stroke="var(--border)" stroke-width="2"/>
+  <text x="180" y="26" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">1 · Confirm it's one key</text>
+  <text x="180" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="9">per-key metrics, not shard averages</text>
+  <line x1="180" y1="52" x2="180" y2="70" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#hs-arrow)"/>
+
+  <rect x="20" y="80" width="320" height="44" rx="6" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="180" y="98" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">2 · Cache the hot key</text>
+  <text x="180" y="114" text-anchor="middle" fill="var(--text-dim)" font-size="9">absorbs repeated reads, no schema change</text>
+  <line x1="180" y1="124" x2="180" y2="142" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#hs-arrow)"/>
+
+  <rect x="20" y="152" width="320" height="44" rx="6" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="180" y="170" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">3 · Throttle the key</text>
+  <text x="180" y="186" text-anchor="middle" fill="var(--text-dim)" font-size="9">blocks abusive or accidental traffic</text>
+  <line x1="180" y1="196" x2="180" y2="214" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#hs-arrow)"/>
+
+  <rect x="20" y="224" width="320" height="44" rx="6" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="2"/>
+  <text x="180" y="242" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">4 · Dedicated shard</text>
+  <text x="180" y="258" text-anchor="middle" fill="var(--text-dim)" font-size="9">isolates the noisy neighbor</text>
+  <line x1="180" y1="268" x2="180" y2="286" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#hs-arrow)"/>
+
+  <rect x="20" y="296" width="320" height="44" rx="6" fill="var(--violet)" fill-opacity="0.18" stroke="var(--violet)" stroke-width="2"/>
+  <text x="180" y="314" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">5 · Sub-shard the key</text>
+  <text x="180" y="330" text-anchor="middle" fill="var(--text-dim)" font-size="9">spreads one user across many shards</text>
+  <line x1="180" y1="340" x2="180" y2="358" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#hs-arrow)"/>
+
+  <rect x="20" y="368" width="320" height="44" rx="6" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="2"/>
+  <text x="180" y="386" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">6 · Redesign the shard key</text>
+  <text x="180" y="402" text-anchor="middle" fill="var(--text-faint)" font-size="9">cluster-wide fix, last resort</text>
+
+  <text x="180" y="428" text-anchor="middle" fill="var(--text-faint)" font-size="9">Cache and throttle are reversible in minutes —</text>
+  <text x="180" y="442" text-anchor="middle" fill="var(--text-faint)" font-size="9">a full reshard is a migration project, not a patch</text>
+
+  <defs>
+    <marker id="hs-arrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+  </defs>
+</svg>`,
+ex:`A payroll-processing enterprise customer, sharded by account_id, starts pushing hundreds of thousands of employee payouts through a single corporate account. That one account alone generates 40% of its shard's total write volume — every other shard sits at normal load, but that one shard times out during each biweekly payroll run, even though the cluster overall has plenty of spare capacity. Adding a dedicated shard for that one customer's account fixes the timeout without touching a single line of application code.`,
+trade:[`Every mitigation before a full reshard is a patch, not a permanent fix — a cache expires, a dedicated shard eventually fills up too, and rate-limiting a real paying customer is a business problem waiting to happen, not just an engineering one.`,`Giving one key its own dedicated shard means that shard's hardware is now sized for one tenant's peak, not the cluster average — a sudden bigger customer can hit the exact same ceiling again, just on hardware built specifically for them.`,`Diagnosing "is this really one key" needs real per-key visibility, not just per-shard aggregates — a cluster that only monitors shard-level CPU can spend hours guessing at a cause that a single query against per-key metrics would have shown immediately.`],related:["Sharding & Shard Key Selection", "Consistent Hashing", "Lock Contention & Hot Rows", "How to Scale a Database, Step by Step (Decision Guide)"],priority:"high"},
 
 {cat:"PF", title:"Vertical vs Horizontal Scaling", def:`Vertical scaling: make a single machine bigger (more CPU/RAM/IOPS) — simple, no architectural change, but has a hard ceiling and doesn't fix bad queries. Horizontal scaling: add more machines (read replicas, partitioning, sharding) — more complex to build and operate, but scales further and improves fault tolerance (no single machine is a total single point of failure).`,
 diagram:`<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
@@ -7413,30 +7678,54 @@ function formatDef(text){
   // get the term bolded, the rest dimmed, and a left rule for visual rhythm.
   // Acronym-looking leading terms (all-caps token, 2+ chars) get colored too.
   //
-  // Additionally: a block that is JUST a short "Step N — Title" (single line,
-  // one sentence, title <=8 words — i.e. a header, not a dense paragraph) opens
-  // a tinted "step-group" box, and every term-line block that follows gets
-  // nested inside it until the next step header or a non-term-line block closes
-  // it. This only fires for that specific short-header shape, so existing
-  // topics whose "Step N — ..." is one long dense paragraph (word count/sentence
-  // count won't qualify) keep rendering exactly as before.
+  // Additionally, two shapes open a tinted "group" box that nests every
+  // term-line block following it, until the next group header or a
+  // non-term-line block closes it:
+  //   1) "Step N — Title" (single line, one sentence, title <=8 words).
+  //   2) Any short "Term — description:" block that ends in a literal colon
+  //      with no internal sentence punctuation (<=10 words) — a generic
+  //      "header announcing points below" marker, reusable outside step-by-
+  //      step guides (e.g. a resource/category breakdown). Verified against
+  //      every existing def string before shipping: nothing currently in the
+  //      file ends a short header on a bare colon, so this can't retroactively
+  //      change how any other topic renders.
+  // Both are narrow, deliberate shapes, so dense single-block paragraphs
+  // elsewhere (an old-style "Step N — long paragraph...") still fall through
+  // to the plain term-line rendering exactly as before.
   const blocks = text.split(/\n\s*\n/);
   let html = "";
-  let stepOpen = false;
-  const closeStep = () => { if(stepOpen){ html += "</div>"; stepOpen = false; } };
+  let groupOpen = false;
+  const closeGroup = () => { if(groupOpen){ html += "</div>"; groupOpen = false; } };
   for(const block of blocks){
-    const stepMatch = !/\n/.test(block) && block.match(/^Step\s+(\d+)\s+—\s+(.+)$/);
-    if(stepMatch){
-      const title = stepMatch[2];
-      const titleWordCount = title.trim().split(/\s+/).length;
-      const sentenceCount = (title.match(/[.!?]/g) || []).length;
-      if(titleWordCount <= 8 && sentenceCount <= 1){
-        closeStep();
-        const numHTML = escapeHTML(stepMatch[1]);
-        const titleHTML = highlightAcronyms(escapeHTML(title));
-        html += `<div class="step-group"><p class="step-header"><span class="step-num">Step ${numHTML}</span> — ${titleHTML}</p>`;
-        stepOpen = true;
-        continue;
+    if(!/\n/.test(block)){
+      const stepMatch = block.match(/^Step\s+(\d+)\s+—\s+(.+)$/);
+      if(stepMatch){
+        const title = stepMatch[2];
+        const titleWordCount = title.trim().split(/\s+/).length;
+        const sentenceCount = (title.match(/[.!?]/g) || []).length;
+        if(titleWordCount <= 8 && sentenceCount <= 1){
+          closeGroup();
+          const numHTML = escapeHTML(stepMatch[1]);
+          const titleHTML = highlightAcronyms(escapeHTML(title));
+          html += `<div class="step-group"><p class="step-header"><span class="step-num">Step ${numHTML}</span> — ${titleHTML}</p>`;
+          groupOpen = true;
+          continue;
+        }
+      }
+      const headerMatch = block.match(/^([^\n]{1,45}?) — (.+):$/);
+      if(headerMatch){
+        const term = headerMatch[1];
+        const rest = headerMatch[2];
+        const wordCount = rest.trim().split(/\s+/).length;
+        const sentencePunct = (rest.match(/[.!?]/g) || []).length;
+        if(wordCount <= 10 && sentencePunct === 0){
+          closeGroup();
+          const termHTML = highlightAcronyms(escapeHTML(term));
+          const restHTML = highlightAcronyms(escapeHTML(rest));
+          html += `<div class="step-group"><p class="step-header">${termHTML} — ${restHTML}:</p>`;
+          groupOpen = true;
+          continue;
+        }
       }
     }
     const m = block.match(/^([^\n]{1,45}?) — ([\s\S]+)$/);
@@ -7456,10 +7745,10 @@ function formatDef(text){
         continue;
       }
     }
-    closeStep();
+    closeGroup();
     html += "<p>" + block.split("\n").map(line=>highlightAcronyms(escapeHTML(line))).join("<br>") + "</p>";
   }
-  closeStep();
+  closeGroup();
   return html;
 }
 function formatInline(text){
