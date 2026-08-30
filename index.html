@@ -6248,6 +6248,84 @@ trade:[
   `Whatever approach you pick, the money-moving write path should almost always stay strongly consistent within its home region — global scale should change *where* the source of truth lives, not weaken the consistency guarantees around it.`
 ],related:["Data Residency & Sovereignty", "Sharding & Shard Key Selection"]},
 
+{cat:"PF", title:"How to Scale a Database, Step by Step (Decision Guide)", def:`Scaling a database isn't one decision — it's an ordered sequence of decisions, and each step is only justified once the step before it has genuinely been exhausted. Reaching for the most powerful tool (sharding, multi-region writers) before you actually need it is the most common overengineering mistake here: it permanently solves a problem you might not even have yet, in exchange for a system that's much harder to run.
+
+Step 1 — Find and fix the actual bottleneck. Before touching any infrastructure, confirm with evidence (slow query logs, EXPLAIN ANALYZE, aggregated stats) that the database is slow because of a missing index or a bad query plan, not because it's genuinely out of capacity. Why first: most "we need to scale the database" conversations are really a missing index wearing a bigger costume, and no amount of hardware fixes a bad query plan. When to move past it: the query plans are already clean, the right indexes exist, and the database is still maxed out under real, measured load.
+
+Step 2 — Vertical scaling. Move to a bigger instance — more CPU, RAM, and IOPS on the exact same single machine. Why: it's the fastest lever available, needs zero application code changes, and buys real time while a harder fix gets built. When to move past it: you've hit the ceiling of the largest instance your provider offers, the cost of the next size up stops making sense, or one machine is now an unacceptable single point of failure on its own.
+
+Step 3 — Read replicas. Route read-heavy traffic (dashboards, transaction history, reporting) to one or more read-only replicas, keeping every write on the primary. Why: most fintech systems are read-heavy relative to writes, so this removes the bulk of the load from the primary without touching the write path at all. When to move past it: replicas are absorbing essentially all the read load they can, but the primary is still struggling — specifically because writes, which replicas do nothing for, are now the real bottleneck.
+
+Step 4 — Partitioning. Split one oversized table into smaller physical pieces on the same instance, so queries can skip irrelevant partitions and maintenance (archiving, deletes) gets cheap. Why: a single oversized table slows down every query and every maintenance job against it, even well-indexed ones, purely from its own size and bloat. When to move past it: the table is fully partitioned and well-organized, but the total write throughput you need still exceeds what one machine — however well partitioned — can physically provide.
+
+Step 5 — Sharding. Split data across multiple independent database instances, using a shard key that matches your dominant query pattern. Why: this is the only lever left once write volume genuinely exceeds what any single machine can do, no matter how large or how well partitioned. When to move past it: sharded write capacity comfortably covers current load in one region, but users are now genuinely spread across continents, and the complaint you're hearing is about distance, not capacity.
+
+Step 6 — Go global. Decide, deliberately, where each piece of data's "true copy" lives, and how far a user has to reach to touch it. Why this step is different from every step before it: no matter how well-tuned a single region is, the speed of light puts a hard floor on how fast a far-away request can travel — past this point you're solving a data-placement problem, not a tuning problem.
+
+The three approaches, simplest to most complex, are covered in full in the dedicated Scaling Globally topic below.
+
+Accept the latency, single region.
+
+Add regional read replicas around one home writer region.
+
+Let multiple regions write, each clearly owning its own slice of the data.
+
+The checkpoint question is the same at every single step: is the bottleneck you're actually measuring solved by the next technique, or are you reaching for a more complex tool before exhausting a simpler one? Evidence should drive every move — never a guess about what "feels like" the obvious next step.`,
+diagram:`<svg viewBox="0 0 360 540" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="8" width="320" height="44" rx="6" fill="var(--panel)" stroke="var(--border)" stroke-width="2"/>
+  <text x="180" y="26" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">1 · Fix the query</text>
+  <text x="180" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="9">index / query plan, not infra</text>
+  <line x1="180" y1="52" x2="180" y2="70" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dbstep-arrow)"/>
+  <text x="180" y="84" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when still maxed out under real load</text>
+
+  <rect x="20" y="96" width="320" height="44" rx="6" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="180" y="114" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">2 · Vertical scaling</text>
+  <text x="180" y="130" text-anchor="middle" fill="var(--text-dim)" font-size="9">bigger CPU / RAM / IOPS, same box</text>
+  <line x1="180" y1="140" x2="180" y2="158" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dbstep-arrow)"/>
+  <text x="180" y="172" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when you hit the largest instance size</text>
+
+  <rect x="20" y="184" width="320" height="44" rx="6" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="180" y="202" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">3 · Read replicas</text>
+  <text x="180" y="218" text-anchor="middle" fill="var(--text-dim)" font-size="9">offload reads off the primary</text>
+  <line x1="180" y1="228" x2="180" y2="246" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dbstep-arrow)"/>
+  <text x="180" y="260" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when writes, not reads, are the bottleneck</text>
+
+  <rect x="20" y="272" width="320" height="44" rx="6" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="2"/>
+  <text x="180" y="290" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">4 · Partitioning</text>
+  <text x="180" y="306" text-anchor="middle" fill="var(--text-dim)" font-size="9">split one table, same instance</text>
+  <line x1="180" y1="316" x2="180" y2="334" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dbstep-arrow)"/>
+  <text x="180" y="348" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when one node's write ceiling is reached</text>
+
+  <rect x="20" y="360" width="320" height="44" rx="6" fill="var(--violet)" fill-opacity="0.18" stroke="var(--violet)" stroke-width="2"/>
+  <text x="180" y="378" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">5 · Sharding</text>
+  <text x="180" y="394" text-anchor="middle" fill="var(--text-dim)" font-size="9">split across DB instances</text>
+  <line x1="180" y1="404" x2="180" y2="422" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dbstep-arrow)"/>
+  <text x="180" y="436" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when users now span continents</text>
+
+  <rect x="20" y="448" width="320" height="44" rx="6" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="2"/>
+  <text x="180" y="466" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">6 · Go global</text>
+  <text x="180" y="482" text-anchor="middle" fill="var(--text-dim)" font-size="9">choose where each copy lives</text>
+
+  <text x="180" y="508" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Each arrow is a checkpoint, not a formality —</text>
+  <text x="180" y="522" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">move only when evidence says the current step is exhausted</text>
+
+  <defs>
+    <marker id="dbstep-arrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+  </defs>
+</svg>`,
+ex:`A neobank's `+"`transactions`"+` table starts throwing timeouts under heavy load. The on-call engineer runs EXPLAIN ANALYZE first and finds a full table scan — an index on `+"`account_id`"+` fixes it the same day (step 1).
+
+Six months of growth later the primary is pegged at 90% CPU even with good indexes in place, so the team moves to the next instance size (step 2), buying roughly a year of runway.
+
+Dashboards and monthly statement generation start timing out the primary during batch reporting, so those reads move to a new read replica (step 3), freeing the primary to focus on writes.
+
+The `+"`transactions`"+` table itself balloons past 500 million rows and even well-indexed queries slow down, so it gets partitioned by month and old partitions are archived off cheaply (step 4).
+
+Write volume eventually outgrows what the single primary can handle even partitioned, so the team shards by `+"`account_id`"+` across four database instances (step 5).
+
+Only once the company expands into the EU and Southeast Asia — and support tickets start citing slow load times specifically from those regions, not database errors — does it add a writer region per geography, each owning its own customers' accounts (step 6).`,
+trade:[`This is an escalation order to check against your own metrics, not a strict recipe to march through blindly — a system born cloud-native with autoscaling might barely need a distinct "vertical scaling" step, and a system with unusually heavy write skew might need sharding before it ever needs partitioning.`,`Skipping ahead is the expensive mistake: sharding before you've exhausted indexing, vertical scaling, and read replicas takes on a permanent operational cost (harder schema changes, harder cross-shard queries, a real migration project every time you reshard) to solve a write-capacity problem you might not have actually reached yet.`,`Moving down this list is rarely free to reverse — consolidating shards back into fewer databases, or pulling a writer region back to read-only, is its own significant migration, so getting an early step wrong compounds in cost at every later step.`],related:["Finding Slow Queries", "Vertical vs Horizontal Scaling", "Read Replicas & Replication Lag", "Partitioning", "Sharding & Shard Key Selection", "Scaling a Database Globally (Users Across Many Countries)"],priority:"high"},
+
 // ---------------- DEBUGGING PRODUCTION ----------------
 {cat:"DG", title:"Stabilize First, Understand Second", def:`When a production bug is actively causing harm, the immediate priority is limiting damage (feature flag off, roll back the deploy, circuit-break the affected path) — not fully understanding the root cause first. Root-cause analysis happens after the bleeding has stopped, ideally with the evidence preserved.`,
 diagram:`<svg viewBox="0 0 560 120" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
@@ -6360,6 +6438,92 @@ trade:[
   `Trace IDs that follow a request across regions are far more reliable than comparing timestamps from different regions' logs, since clocks can differ slightly between regions even with time-sync services in place.`,
   `A fix that works by simply redeploying to "fix" one broken region can hide a deeper problem (like a bad regional config or a partial rollout) — confirm the actual cause before considering the incident closed, even if a redeploy or restart made the symptom go away.`
 ],related:["Distributed Tracing for Debugging", "Data Residency & Sovereignty"]},
+
+{cat:"DG", title:"How to Debug a Production Incident, Step by Step (Decision Guide)", def:`Debugging a production incident isn't one skill — it's an ordered sequence of moves, and jumping straight to "find the root cause" while customers are actively losing money gets the order exactly backwards. Each step below earns its place because of what skipping it actually costs you.
+
+Step 1 — Stabilize first. Limit the damage (a feature flag off, a rollback, or a circuit-break of the affected path) before you understand anything about why it's happening. Why first: continued customer harm — duplicate charges, failed payments — almost always costs more than a slightly harder post-hoc investigation later. When to move past it: the bleeding has actually stopped, confirmed against the metric that was originally alarming, not a hopeful guess that the fix worked.
+
+Step 2 — Localize with tracing and observability. Follow a single trace ID across every service the failing request touches, narrowing "something in the system is broken" down to one specific service and call. Why: manually correlating separate logs from a dozen services by timestamp is slow and error-prone, especially once several services could plausibly be the culprit. When to move past it: you've narrowed the problem to a specific service or query — not still trying to establish whether it's even a code issue at all.
+
+Step 3 — Check reproducibility, then form and test a hypothesis. Before writing down any hypothesis, first establish whether the problem can be reliably triggered on demand, or whether it's intermittent and only shows up sometimes — this single fact decides your entire testing strategy for this step.
+
+If it's reproducible: state a specific, falsifiable hypothesis ("I believe X causes Y because Z") and test it with the safest available method first — read-only queries, or a sandbox/shadow replay — before touching production directly.
+
+If it's not reproducible: you can't confirm a hypothesis by simply triggering the bug again, so the strategy shifts to gathering evidence for next time — add targeted logging or tracing around your leading suspects, correlate the occurrences you already have against deploys, config changes, or traffic patterns, and wait for (or, carefully, try to induce) another occurrence rather than concluding from a single data point.
+
+Why check this first: treating an intermittent bug as reproducible wastes time re-running a test that was never going to reliably trigger the symptom in the first place, and treating a reproducible bug as intermittent skips the fastest, most direct way to actually confirm a hypothesis. Why the whole step matters at all: randomly restarting things or poking at production without a stated hypothesis means you might "fix" the symptom without ever learning what was actually wrong, or worse, introduce a second, unrelated problem. When to move past it: the hypothesis is confirmed with direct evidence — either a clean reproduction, or a strong correlation across multiple gathered occurrences — not merely "the error rate went down after I changed something."
+
+Step 4 — Repair the code, and separately, the data. Fixing the bug in code stops it from happening again, but does nothing for records that were already written incorrectly while the bug was live. Why both: a wrong balance or a duplicated fee doesn't self-correct just because the code that caused it is now fixed — it needs its own audited correction, distinct from the code fix. When to move past it: you've identified every affected record, not just the one that got reported, and applied a properly audited correction — never a silent, untracked UPDATE — for each one.
+
+Step 5 — Run a blameless postmortem. Once things are stable and understood, review the timeline, the root cause, and the contributing gaps (in monitoring, in process) — explicitly not who to blame. Why: a punitive review discourages the honest reporting needed to actually learn from an incident, which defeats the entire point of running one. When you're actually done: the postmortem has produced concrete action items with owners, not just a narrative of what happened.
+
+One extra layer applies on top of all five steps for a global, multi-region application: the same code can behave differently in different places at the same time. Why this needs its own checkpoint: a bug that's actually a regional replication or infrastructure issue can waste hours if you go straight to reading application code instead — the full checklist is covered in the dedicated Debugging a Global, Multi-Region Application topic below.
+
+Check which region is actually affected, first.
+
+Rule out ordinary replication lag before assuming the data itself is wrong.
+
+Use a trace ID, not timestamps, to establish the order of events across regions with different clocks.
+
+When it applies: your service runs the same code in more than one region, and the symptom doesn't look identical everywhere.
+
+The checkpoint question is the same at every step: has this step actually done its job — stopped the harm, narrowed the cause, confirmed the hypothesis, fixed both the code and the data, captured the learning — or are you moving on because you're impatient to be finished? Evidence should close each step, never a feeling that enough has been done.`,
+diagram:`<svg viewBox="0 0 360 570" xmlns="http://www.w3.org/2000/svg" font-family="var(--sans)">
+  <rect x="20" y="8" width="320" height="44" rx="6" fill="var(--red)" fill-opacity="0.15" stroke="var(--red)" stroke-width="2"/>
+  <text x="180" y="26" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">1 · Stabilize</text>
+  <text x="180" y="42" text-anchor="middle" fill="var(--text-faint)" font-size="9">stop the harm — flag off / rollback</text>
+  <line x1="180" y1="52" x2="180" y2="70" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dgFlowArrow)"/>
+  <text x="180" y="84" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when the alarming metric actually stops</text>
+
+  <rect x="20" y="96" width="320" height="44" rx="6" fill="var(--blue)" fill-opacity="0.18" stroke="var(--blue)" stroke-width="2"/>
+  <text x="180" y="114" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">2 · Localize</text>
+  <text x="180" y="130" text-anchor="middle" fill="var(--text-dim)" font-size="9">trace ID narrows it to one service</text>
+  <line x1="180" y1="140" x2="180" y2="158" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dgFlowArrow)"/>
+  <text x="180" y="172" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when it's narrowed to one service or query</text>
+
+  <rect x="20" y="184" width="320" height="44" rx="6" fill="var(--ledger)" fill-opacity="0.15" stroke="var(--ledger)" stroke-width="2"/>
+  <text x="180" y="202" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">3 · Reproduce & Hypothesize</text>
+  <text x="180" y="218" text-anchor="middle" fill="var(--text-dim)" font-size="9">reproducible? test it — if not, gather evidence</text>
+  <line x1="180" y1="228" x2="180" y2="246" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dgFlowArrow)"/>
+  <text x="180" y="260" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when confirmed with direct evidence</text>
+
+  <rect x="20" y="272" width="320" height="44" rx="6" fill="var(--violet)" fill-opacity="0.18" stroke="var(--violet)" stroke-width="2"/>
+  <text x="180" y="290" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">4 · Repair</text>
+  <text x="180" y="306" text-anchor="middle" fill="var(--text-dim)" font-size="9">fix the code, and separately, the data</text>
+  <line x1="180" y1="316" x2="180" y2="334" stroke="var(--text-faint)" stroke-width="2" marker-end="url(#dgFlowArrow)"/>
+  <text x="180" y="348" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">when every affected record is corrected too</text>
+
+  <rect x="20" y="360" width="320" height="44" rx="6" fill="var(--amber)" fill-opacity="0.18" stroke="var(--amber)" stroke-width="2"/>
+  <text x="180" y="378" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">5 · Postmortem</text>
+  <text x="180" y="394" text-anchor="middle" fill="var(--text-dim)" font-size="9">timeline + root cause, never blame</text>
+  <line x1="180" y1="404" x2="180" y2="422" stroke="var(--text-faint)" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#dgFlowArrow)"/>
+  <text x="180" y="436" text-anchor="middle" fill="var(--text-faint)" font-size="8.5">+ layered on top, only for global/multi-region apps</text>
+
+  <rect x="20" y="448" width="320" height="70" rx="6" fill="var(--panel)" stroke="var(--border)" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="180" y="465" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-weight="600">Global / multi-region layer</text>
+  <text x="180" y="481" text-anchor="middle" fill="var(--text-faint)" font-size="8">which region is actually affected?</text>
+  <text x="180" y="494" text-anchor="middle" fill="var(--text-faint)" font-size="8">real bug, or just replication lag?</text>
+  <text x="180" y="507" text-anchor="middle" fill="var(--text-faint)" font-size="8">trace ID, not timestamps, across clocks</text>
+
+  <text x="180" y="536" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">Each arrow is a checkpoint, not a formality —</text>
+  <text x="180" y="550" text-anchor="middle" fill="var(--text-faint)" font-size="9.5">move on only once this step has actually done its job</text>
+
+  <defs>
+    <marker id="dgFlowArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="var(--text-faint)"/></marker>
+  </defs>
+</svg>`,
+ex:`A new fraud-rule deploy starts silently declining a slice of legitimate transactions. The on-call engineer immediately rolls back the deploy (step 1) — declines drop back to baseline within two minutes, confirmed on the payment-success dashboard, before anyone has looked at a single log line.
+
+A trace ID from one of the declined requests shows the request spent four seconds inside the fraud-check service specifically, timing out and defaulting to "decline" — narrowing the investigation to that one service instead of payments, ledger, or notifications (step 2).
+
+Since every declined request from that window shows the exact same four-second delay, it's clearly reproducible rather than an intermittent flake — so the engineer states a hypothesis — "the new fraud-rule config added a synchronous call to a slow third-party lookup, and that call is timing out" — and confirms it directly by replaying a sample of the declined requests against a shadow copy of the old config, where they succeed (step 3).
+
+Because the bug was live for eleven minutes, the team pulls the exact list of affected transactions, calculates which should have been approved, and issues a separate, audited corrective transaction for each — the code fix alone wouldn't un-decline a payment a customer already saw fail (step 4).
+
+The postmortem's action items are about the missing timeout on the third-party call and the missing alert on fraud-service latency specifically, not about who wrote the config (step 5).
+
+Because the fraud service runs in every region, the team also checks region by region — the timeout hit everywhere equally, ruling out a one-region replication or infrastructure explanation and confirming this really was a code-level issue.`,
+trade:[`This is an order to check against the actual incident, not a rigid script to follow line by line — a severe enough incident might need code and data repair to start in parallel with stabilization, and an already-obvious bug might not need a lengthy hypothesis-testing phase at all.`,`Skipping stabilization to keep investigating "just a little longer" is the most expensive version of this mistake — every extra minute spent root-causing while a bug is still live is measured in real customer harm, not just engineering time.`,`Treating the global/multi-region layer as optional rather than automatic is a common trap — a team debugging as if it has one region can burn hours reading application code for a symptom that was actually a regional replication lag or clock-skew issue the whole time.`],related:["Stabilize First, Understand Second", "Distributed Tracing for Debugging", "Hypothesis-Driven Debugging", "Data Repair vs Code Repair", "Blameless Postmortems", "Debugging a Global, Multi-Region Application"],priority:"high"},
 
 // ---------------- CLOUD, CI/CD & CONTAINERS ----------------
 {cat:"CC", title:"Containers & Docker", def:`A container packages up an application together with everything it needs to run — code, runtime, system libraries, configuration — into one self-contained unit that behaves the same way no matter which machine it runs on. Docker is the most widely-used tool for building and running containers.
